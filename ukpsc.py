@@ -9,14 +9,14 @@ st.set_page_config(page_title="UKPSC Sentinel", layout="wide", page_icon="🛡�
 # 2. Cloud Connection
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 3. Defensive Data Loader
+# 3. Defensive Data Loader (The Fix for your KeyError)
 try:
     df = conn.read(worksheet="Tasks", ttl=0)
-    # Ensure all required columns exist in the dataframe to avoid KeyErrors
+    # Ensure all required columns exist in the dataframe
     required_cols = ["Day", "Subject", "Topic", "Status", "Notes", "Start_Time", "End_Time", "Resources"]
     for col in required_cols:
         if col not in df.columns:
-            df[col] = ""
+            df[col] = "" # Automatically creates the missing column
 except Exception:
     df = pd.DataFrame(columns=["Day", "Subject", "Topic", "Status", "Notes", "Start_Time", "End_Time", "Resources"])
 
@@ -41,16 +41,14 @@ if page == "📊 Dashboard":
         
         st.divider()
 
-        # Calculation of Total Study Hours
+        # Late Night Study Hours Calculation
         total_hours = 0.0
         for _, row in completed.iterrows():
             try:
-                # Expecting format like "10:00 PM"
                 fmt = "%I:%M %p"
                 start = datetime.strptime(str(row["Start_Time"]), fmt)
                 end = datetime.strptime(str(row["End_Time"]), fmt)
-                # Handle late night sessions crossing midnight
-                if end < start: end += timedelta(days=1)
+                if end < start: end += timedelta(days=1) # Midnight logic
                 total_hours += (end - start).total_seconds() / 3600
             except: continue
         
@@ -68,26 +66,58 @@ if page == "📊 Dashboard":
             if pd.notna(res_url) and str(res_url).strip() != "":
                 st.link_button("🔓 Open Today's PDF", res_url, type="primary")
 
-# --- DIGITAL LIBRARY (Defensive Fix) ---
-elif page == "📚 Digital Library":
-    st.title("📚 Sentinel Digital Library")
+# --- FULL 60-DAY ROADMAP ---
+elif page == "📅 60-Day Roadmap":
+    st.title("🛤️ Full Syllabus Roadmap")
     if not df.empty:
-        topic_to_link = st.selectbox("Assign resource to topic:", df['Topic'].tolist())
-        idx = df[df['Topic'] == topic_to_link].index[0]
-        
-        # Use .get to safely access potential missing columns
-        current_res = df.at[idx, "Resources"] if "Resources" in df.columns else ""
-        url = st.text_input("Paste Drive/PDF Link:", value=str(current_res) if pd.notna(current_res) else "")
-        
-        if st.button("🔗 Update Library"):
-            df.at[idx, "Resources"] = url
-            conn.update(worksheet="Tasks", data=df)
-            st.success("Resource successfully linked to topic!")
+        start_date = datetime(2026, 2, 13).date()
+        df_view = df.copy()
+        df_view['Day'] = pd.to_numeric(df_view['Day'])
+        df_view['Date'] = df_view['Day'].apply(lambda x: (start_date + timedelta(days=int(x)-1)).strftime('%d %b %Y'))
+        st.dataframe(df_view[['Day', 'Date', 'Subject', 'Topic', 'Status']], use_container_width=True, hide_index=True)
 
-# --- SETTINGS (Full Force Reset) ---
+# --- ATTENDANCE LOG ---
+elif page == "⏱️ Attendance Log":
+    st.title("⏱️ Study Session Attendance")
+    if not df.empty:
+        selected_topic = st.selectbox("Assign hours to topic:", df['Topic'].tolist())
+        idx = df[df['Topic'] == selected_topic].index[0]
+        col1, col2 = st.columns(2)
+        with col1: start_t = st.text_input("Start (10:00 PM)", value=str(df.at[idx, "Start_Time"]))
+        with col2: end_t = st.text_input("End (12:00 AM)", value=str(df.at[idx, "End_Time"]))
+        if st.button("🏁 Log Session & Complete"):
+            df.at[idx, "Start_Time"], df.at[idx, "End_Time"], df.at[idx, "Status"] = start_t, end_t, "Completed"
+            conn.update(worksheet="Tasks", data=df)
+            st.success("Session saved!"); st.rerun()
+
+# --- DIGITAL LIBRARY ---
+elif page == "📚 Digital Library":
+    st.title("📚 Digital Library")
+    if not df.empty:
+        topic_to_link = st.selectbox("Assign link to topic:", df['Topic'].tolist())
+        idx = df[df['Topic'] == topic_to_link].index[0]
+        # Safe string conversion for Resources
+        existing_val = df.at[idx, "Resources"]
+        val_to_show = str(existing_val) if pd.notna(existing_val) else ""
+        url = st.text_input("Paste Drive/PDF URL:", value=val_to_show if val_to_show != "nan" else "")
+        if st.button("🔗 Save Link"):
+            df.at[idx, "Resources"] = url
+            conn.update(worksheet="Tasks", data=df); st.success("Resource Saved!")
+
+# --- STUDY NOTES ---
+elif page == "📝 Study Notes":
+    st.title("📝 Sentinel Study Notes")
+    if not df.empty:
+        selected = st.selectbox("Topic", df['Topic'].unique())
+        idx = df[df['Topic'] == selected].index[0]
+        note = st.text_area("Key Facts", value=df.at[idx, 'Notes'])
+        if st.button("💾 Save"):
+            df.at[idx, 'Notes'] = note
+            conn.update(worksheet="Tasks", data=df); st.success("Notes Synced!")
+
+# --- SETTINGS ---
 elif page == "⚙️ Settings":
     st.title("⚙️ Engine Room")
-    st.warning("Clicking Initialize will deploy the full 60-day roadmap and fix any column errors.")
     if st.button("🚀 Initialize FULL 60-Day Roadmap"):
         plan = []
         cycle = [("History", "Ancient UK"), ("Polity", "Constitution"), ("Geography", "Rivers"), ("UK GK", "Districts"), ("History", "Modern UK"), ("Economy", "Budget"), ("Science", "Environment")]
@@ -97,8 +127,5 @@ elif page == "⚙️ Settings":
             else:
                 sub, top = cycle[(i-1) % 7]
                 plan.append({"Day": i, "Subject": sub, "Topic": f"{top} (Part {i})", "Status": "Planned", "Notes": "", "Start_Time": "10:00 PM", "End_Time": "12:00 AM", "Resources": ""})
-        
         conn.update(worksheet="Tasks", data=pd.DataFrame(plan))
-        st.success("Sentinel system reset and fully deployed!"); st.rerun()
-
-# (Include Roadmap, Attendance, and Notes tabs as previously designed)
+        st.success("60-Day Roadmap Deployed!"); st.rerun()
