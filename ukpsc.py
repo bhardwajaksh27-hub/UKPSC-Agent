@@ -4,8 +4,14 @@ from datetime import datetime, timedelta
 import json
 import os
 
-# --- 1. DATA PERSISTENCE LAYER ---
-DATA_FILE = "ukpsc_study_vault.json"
+# --- 1. STORAGE & REPOSITORY ENGINE ---
+DATA_FILE = "ukpsc_permanent_storage.json"
+
+REPOSITORIES = {
+    "NCERT_12": "https://ncert.nic.in/textbook.php?fepy1=1-15",
+    "NIOS_HISTORY": "https://nios.ac.in/online-course-material/sr-secondary-courses/history-(315).aspx",
+    "UKPSC_PYQ": "https://psc.uk.gov.in/previous-year-question-paper"
+}
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -14,8 +20,8 @@ def load_data():
     return {
         "current_day": 1,
         "shift_days": 0,
-        "logs": [],
-        "notes": {},  
+        "logs": [],      # List of {day, start, stop}
+        "notes": {},     # Dict of {day_index: text}
         "is_active": False,
         "start_time": None
     }
@@ -26,209 +32,161 @@ def save_data(data):
 
 data = load_data()
 
-# --- 2. FULL 60-WORKING-DAY SYLLABUS ---
-# Comprehensive UKPSC Prelims + Mains Syllabus
+# --- 2. THE COMPLETE 60-WORKING-DAY SYLLABUS ---
 syllabus = [
-    # ANCIENT & MEDIEVAL HISTORY
-    "Day 1: Harappan Civilization - Town Planning, Seals, Trade & Urbanism (NCERT/NIOS Focus)",
-    "Day 2: Vedic Age - Early vs Later Vedic Society, Rivers, Sabha/Samiti & Political Shift",
-    "Day 3: Mahajanapadas, Buddhism & Jainism - Philosophy, Councils & Impact",
-    "Day 4: Mauryan Empire - Administration, Ashokan Edicts & Mauryan Art",
-    "Day 5: Post-Mauryan (Kushanas/Satvahanas) & Gupta Golden Age - Science & Literature",
-    "Day 6: Early Medieval India - Harshavardhana, Cholas & Arrival of Islam",
-    "Day 7: Delhi Sultanate - Administration, Market Reforms (Alauddin) & Architecture",
-    "Day 8: Mughal Empire - Akbar's Mansabdari, Land Revenue & Cultural Synthesis",
-    "Day 9: Maratha Empire - Shivaji's Administration (Ashtapradhan) & Decline of Mughals",
-    # MODERN HISTORY
-    "Day 10: British Expansion - Plassey, Buxar & Subsidiary Alliance/Doctrine of Lapse",
-    "Day 11: 1857 Revolt - Causes, Nature & Impact in Uttarakhand (Kalu Mahara)",
-    "Day 12: Social-Religious Reform Movements (Raja Ram Mohan Roy, Dayanand Saraswati)",
-    "Day 13: Indian National Congress - Moderate Phase & Extremist Rise (1885-1905)",
-    "Day 14: Gandhian Era I - NCM, Khilafat & Civil Disobedience Movement",
-    "Day 15: Gandhian Era II - Quit India Movement, INA & Partition/Independence",
-    # UTTARAKHAND SPECIAL (HISTORY & CULTURE)
-    "Day 16: UK Special - Ancient Tribes (Kunindas, Yaudheyas) & Katyuri Dynasty",
-    "Day 17: UK Special - Chand Dynasty (Kumaon) & Parmar Dynasty (Garhwal)",
-    "Day 18: UK Special - Gorkha Rule (1790-1815) & British Kumaon/Garhwal Administration",
-    "Day 19: UK Special - Uttarakhand Freedom Struggle & Statehood Movement",
-    "Day 20: UK Special - Culture, Festivals, Folk Art & Tribes of Uttarakhand",
-    # GEOGRAPHY (INDIA & WORLD)
-    "Day 21: Physical Geography - Himalayas, Indo-Gangetic Plains & Peninsular Plateau",
-    "Day 22: Climate - Indian Monsoon, Jet Streams & Western Disturbances",
-    "Day 23: Drainage System - Himalayan Rivers (Ganga, Yamuna) vs Peninsular Rivers",
-    "Day 24: Soil, Natural Vegetation & Agriculture in India",
-    "Day 25: World Geography - Latitudes, Longitudes & Major Continents/Oceans",
-    # UTTARAKHAND GEOGRAPHY
-    "Day 26: UK Geography - River Systems (Alaknanda, Bhagirathi, Kali, Yamuna)",
-    "Day 27: UK Geography - Glaciers, Mountain Peaks & Lakes of Uttarakhand",
-    "Day 28: UK Geography - Disaster Management (Landslides, Flash Floods, Earthquake zones)",
-    "Day 29: UK Geography - Forests, Wildlife (National Parks) & Mineral Resources",
-    # POLITY & CONSTITUTION
-    "Day 30: Constitutional Framework - Preamble, Citizenship & FRs/DPSPs/FDs",
-    "Day 31: Union Executive - President, VP, PM & Council of Ministers",
-    "Day 32: Parliament - Composition, Sessions, Bills & Committees",
-    "Day 33: State Government - Governor, CM & State Legislature (Special UK focus)",
-    "Day 34: Judiciary - Supreme Court, High Court & PIL/Judicial Activism",
-    "Day 35: Local Governance - 73rd/74th Amendments & Panchayati Raj in Hills",
-    "Day 36: Constitutional & Non-Constitutional Bodies (Election Commission, UPSC, UKPSC)",
-    # ECONOMY
-    "Day 37: Basic Economics - National Income, Inflation, Banking & Monetary Policy",
-    "Day 38: Fiscal Policy - Budgeting Process, GST & Financial Relations",
-    "Day 39: UK Economy - Tourism (Chardham), Horticulture & Hydro-power potential",
-    "Day 40: UK Economy - Migration (Palayan) Issues & MSME Sector in Hills",
-    # GENERAL SCIENCE & ENVIRONMENT
-    "Day 41: Physics - Optics, Sound, Electricity & Nuclear Energy",
-    "Day 42: Chemistry - Carbon, Polymers, Acids/Bases & Everyday Chemistry",
-    "Day 43: Biology - Cell Structure, Human Systems, Nutrition & Diseases",
-    "Day 44: Environment - Biodiversity, Climate Change & Himalayan Ecology",
-    "Day 45: Tech - Space, Defense, Biotechnology & IT in Governance",
-    # ETHICS (MAINS PAPER VI)
-    "Day 46: Ethics - Human Values, Attitude & Aptitude for Civil Services",
-    "Day 47: Emotional Intelligence - Concept & Application in Administration",
-    "Day 48: Probity in Governance - RTI, Citizen Charters & Code of Ethics",
-    "Day 49: Ethics Case Studies - Ethical Dilemmas in Public Service",
-    # INTERNATIONAL RELATIONS & CURRENT AFFAIRS
-    "Day 50: IR - India & Neighbors (Focus on Nepal Border & China Policy)",
-    "Day 51: Global Groups - UN, G20, BRICS, SCO & QUAD",
-    "Day 52: UK Current Affairs - State Govt Schemes & Current Budget Highlights",
-    "Day 53: National/International Current Affairs Compilation",
-    # REVISION & MOCKS
-    "Day 54: Revision - Ancient & Medieval History + UK History",
-    "Day 55: Revision - Modern History + Indian Polity",
-    "Day 56: Revision - Geography (India/World) + UK Geography",
-    "Day 57: Revision - Economy + Science/Environment",
-    "Day 58: Mock Test 01 - General Studies Paper I (Prelims Style)",
-    "Day 59: Mock Test 02 - CSAT & Ethics (Mains Paper VI)",
-    "Day 60: Final Revision & Strategy Review"
+    "Day 1: Harappan Civilization - Town Planning, Seals & Trade (NCERT Ch 1)",
+    "Day 2: Vedic Age - Early vs Later, Rivers (Sapta-Sindhu) & Sabha/Samiti",
+    "Day 3: Mahajanapadas, Buddhism & Jainism - Philosophy & UKPSC PYQs",
+    "Day 4: Mauryan Empire - Administration & Ashokan Edicts",
+    "Day 5: Gupta Period - Science, Literature & Golden Age",
+    "Day 6: Medieval India - Delhi Sultanate (Slave & Khalji Dynasties)",
+    "Day 7: Mughal Empire - Administration, Revenue & Architecture",
+    "Day 8: Maratha Empire & Rise of Regional Powers",
+    "Day 9: British Expansion - Plassey to Buxar & Land Revenue Policy",
+    "Day 10: 1857 Revolt - Impact in Uttarakhand (Kalu Mahara's Role)",
+    "Day 11: INC Formation & Moderate vs Extremist phase",
+    "Day 12: Gandhian Era - NCM, CDM & Quit India Movement",
+    "Day 13: UK Special History - Katyuri & Chand Dynasties",
+    "Day 14: UK Special History - Parmar Dynasty & Gorkha Rule",
+    "Day 15: UK Special History - British Rule & Statehood Movement",
+    "Day 16: Geography - Physical Features of India (Himalayas & Plains)",
+    "Day 17: Geography - Drainage Systems (Ganga, Yamuna, Brahmaputra)",
+    "Day 18: Geography - Climate, Monsoons & Western Disturbances",
+    "Day 19: UK Geography - Rivers (Alaknanda, Bhagirathi, Kali)",
+    "Day 20: UK Geography - Glaciers, Lakes & Natural Disasters",
+    "Day 21: Polity - Preamble, Fundamental Rights & DPSPs",
+    "Day 22: Polity - Union Executive (President, PM, Parliament)",
+    "Day 23: Polity - Judiciary (SC, HC & Subordinate Courts)",
+    "Day 24: Polity - Panchayati Raj & 73rd/74th Amendments",
+    "Day 25: Economy - Basic Concepts, GDP, Inflation & Monetary Policy",
+    "Day 26: Economy - Budgeting & Fiscal Policy (Central/State)",
+    "Day 27: UK Economy - Tourism, Horticulture & Hydro-power",
+    "Day 28: UK Economy - Migration (Palayan) & MSME Policy",
+    "Day 29: Science - Physics (Light, Sound, Gravity) & PYQs",
+    "Day 30: Science - Chemistry (Everyday Life) & Biology (Human Systems)",
+    "Day 31: Environment - Biodiversity & Himalayan Ecology",
+    "Day 32: Ethics - Human Values & Attitude (Mains Paper VI)",
+    "Day 33: Ethics - Emotional Intelligence & Probity in Governance",
+    "Day 34: Ethics - Case Studies (Disaster Management Scenarios)",
+    "Day 35: International Relations - India & Neighbors (China, Nepal)",
+    "Day 36: IR - Global Bodies (UN, G20, BRICS, SCO)",
+    "Day 37: UK Special - Culture, Festivals, Tribes & Folk Art",
+    "Day 38: UK Special - Important Personalities & Welfare Schemes",
+    "Day 39: General Science - Space, Defense & IT in Governance",
+    "Day 40: Current Affairs - Uttarakhand State Schemes (Last 1 Year)",
+    "Day 41: Current Affairs - National/International (Feb 2025-Feb 2026)",
+    "Day 42: Quantitative Aptitude - Number System, Ratio & Proportion",
+    "Day 43: Quantitative Aptitude - Percentage, Profit & Loss",
+    "Day 44: Reasoning - Coding-Decoding, Blood Relations",
+    "Day 45: Reasoning - Syllogism, Seating Arrangement",
+    "Day 46: Mains Writing Practice - History & Culture (Paper II)",
+    "Day 47: Mains Writing Practice - Polity & IR (Paper III)",
+    "Day 48: Mains Writing Practice - Geography (Paper IV)",
+    "Day 49: Mains Writing Practice - Economy (Paper V)",
+    "Day 50: Mains Writing Practice - Ethics (Paper VI)",
+    "Day 51: Revision - Ancient & Medieval History",
+    "Day 52: Revision - Modern History & UK History",
+    "Day 53: Revision - Geography & Environment",
+    "Day 54: Revision - Polity & Governance",
+    "Day 55: Revision - Economy & General Science",
+    "Day 56: Mock Test - GS Paper I (Prelims)",
+    "Day 57: Mock Test - CSAT Paper II (Prelims)",
+    "Day 58: Full Length Mock - UK Special Focus",
+    "Day 59: Data Interpretation & Chart Analysis",
+    "Day 60: Final Strategy & Current Affairs Round-up"
 ]
 
-# --- 3. DATE & CALENDAR LOGIC ---
-def get_date(working_day_num, shift):
-    """Calculates date by skipping Sundays and adding carry-over shifts."""
-    start_date = datetime(2026, 2, 16) # Reference start: Feb 16, 2026 (Monday)
-    current_date = start_date
-    count = 0
-    target = working_day_num + shift
-    
+# --- 3. THE DATE ENGINE (Mon-Start, Sunday Skip, Carry Over) ---
+def get_adjusted_date(day_idx, shift):
+    start_date = datetime(2026, 2, 16) # Reference Monday
+    curr = start_date
+    count = 1
+    target = day_idx + shift
     while count < target:
-        if current_date.weekday() != 6: # Skip Sundays
+        curr += timedelta(days=1)
+        if curr.weekday() != 6: # 6 is Sunday
             count += 1
-        if count < target:
-            current_date += timedelta(days=1)
-    return current_date
+    return curr
 
 # --- 4. APP INTERFACE ---
-st.set_page_config(page_title="UKPSC Warrior ERP", layout="wide")
+st.set_page_config(page_title="UKPSC ERP", layout="wide")
+st.title("🛡️ UKPSC 60-Working-Day Master Planner")
 
-# Sidebar: Monthly Calendar Dashboard
+# Sidebar: Repositories & Calendar Dashboard
 with st.sidebar:
-    st.header("🗓️ Dashboard")
-    today = datetime.now()
-    st.write(f"**Today:** {today.strftime('%A, %d %b %Y')}")
-    st.write(f"**Current Study Day:** {data['current_day']}")
-    
-    # Visual Monday-Start Table (Simplified representation)
-    st.markdown("---")
-    st.write("**Feb/Mar 2026 Grid**")
-    st.caption("M T W T F S [S]")
-    # Highlight logic
-    st.markdown(f"<h1 style='color: #FF4B4B; text-align: center;'>DAY {data['current_day']}</h1>", unsafe_allow_html=True)
+    st.header("📚 Resource Repositories")
+    st.link_button("NCERT Class 12", REPOSITORIES["NCERT_12"])
+    st.link_button("NIOS History (315)", REPOSITORIES["NIOS_HISTORY"])
+    st.link_button("UKPSC PYQ Portal", REPOSITORIES["UKPSC_PYQ"])
+    st.divider()
+    st.header("📊 Progress Dashboard")
+    st.metric("Working Day", f"{data['current_day']}/60")
     st.progress(data['current_day'] / 60)
+    st.markdown("---")
+    st.caption("M T W T F S [S]")
+    st.markdown(f"<h1 style='color:red; text-align:center;'>Day {data['current_day']}</h1>", unsafe_allow_html=True)
 
-# Main Body
-st.title("🏹 UKPSC 60-Working-Day Planner")
-
-# TOP SECTION: Attendance & Carry Over
+# Main Section: Attendance & Attendance HH:MM
 cur_day = data["current_day"]
-st.subheader(f"📖 Active Topic: {syllabus[cur_day-1]}")
+st.subheader(f"Current Module: {syllabus[cur_day-1]}")
 
 col1, col2, col3, col4 = st.columns(4)
 
-if col1.button("▶️ Start Session"):
+if col1.button("▶️ START SESSION"):
     data["is_active"] = True
     data["start_time"] = datetime.now().strftime("%I:%M %p")
     save_data(data)
     st.rerun()
 
-if col2.button("⏹️ Stop (Record Break)"):
-    # Limit to 5 breaks logic
+if col2.button("⏹️ STOP (MAX 5)"):
     today_logs = [l for l in data["logs"] if l["day"] == cur_day]
     if data["is_active"] and len(today_logs) < 5:
         stop_time = datetime.now().strftime("%I:%M %p")
-        data["logs"].append({
-            "day": cur_day,
-            "start": data["start_time"],
-            "stop": stop_time,
-            "date": datetime.now().strftime("%Y-%m-%d")
-        })
+        data["logs"].append({"day": cur_day, "start": data["start_time"], "stop": stop_time})
         data["is_active"] = False
         data["start_time"] = None
         save_data(data)
         st.rerun()
-    elif len(today_logs) >= 5:
-        st.error("Max 5 break segments reached for today.")
 
-if col3.button("🔄 Carry Over Topic"):
+if col3.button("🔄 CARRY OVER"):
     data["shift_days"] += 1
     save_data(data)
-    st.warning("Topic not finished. Schedule shifted by +1 Working Day.")
     st.rerun()
 
-if col4.button("✅ Mark Day Complete"):
+if col4.button("✅ DAY COMPLETE"):
     data["current_day"] += 1
     save_data(data)
-    st.success("Moving to next day!")
     st.rerun()
 
-# ATTENDANCE LOGS DISPLAY
-active_logs = [l for l in data["logs"] if l["day"] == cur_day]
-if active_logs:
-    with st.expander("🕒 View Today's Study Segments"):
-        for i, log in enumerate(active_logs):
-            st.write(f"**Segment {i+1}:** {log['start']} to {log['stop']}")
+# Notes & Attendance Display
+tab1, tab2 = st.tabs(["📝 Study Notes (NCERT/NIOS)", "🕒 Attendance Logs"])
 
-# --- 5. STUDY NOTES SECTION ---
+with tab1:
+    key = str(cur_day)
+    notes = st.text_area("Record key points for today's topic:", value=data["notes"].get(key, ""), height=300)
+    if st.button("💾 Save Progress"):
+        data["notes"][key] = notes
+        save_data(data)
+        st.success("Progress Saved to Local Storage.")
+
+with tab2:
+    today_logs = [l for l in data["logs"] if l["day"] == cur_day]
+    if not today_logs: st.info("No logs for today yet.")
+    for i, log in enumerate(today_logs):
+        st.write(f"**Segment {i+1}:** {log['start']} - {log['stop']}")
+
+# Dynamic Roadmap
 st.divider()
-st.subheader("📝 NCERT & NIOS Study Vault")
-current_note_key = str(cur_day)
-saved_note = data["notes"].get(current_note_key, "")
-
-note_content = st.text_area(
-    f"Draft your notes for Day {cur_day} (e.g., Harappan Town Planning or Vedic Rivers):",
-    value=saved_note,
-    height=250,
-    placeholder="Paste your summaries from NCERT Class 12 and NIOS here..."
-)
-
-if st.button("💾 Save My Notes"):
-    data["notes"][current_note_key] = note_content
-    save_data(data)
-    st.toast("Notes saved successfully!")
-
-# --- 6. DYNAMIC ROADMAP TABLE ---
-st.divider()
-st.subheader("🗓️ Personalized Roadmap (Auto-Adjusted)")
-
-roadmap_list = []
+st.subheader("🗓️ Automated 60-Working-Day Schedule")
+roadmap = []
 for i in range(1, 61):
-    actual_date = get_date(i, data["shift_days"])
-    status = "✅ Done" if i < data["current_day"] else ("🔥 ACTIVE" if i == data["current_day"] else "⏳ Pending")
-    roadmap_list.append({
-        "Status": status,
-        "Day": i,
-        "Date": actual_date.strftime("%d-%m-%Y (%a)"),
-        "Syllabus Module": syllabus[i-1]
+    d = get_adjusted_date(i, data["shift_days"])
+    status = "✅" if i < data["current_day"] else ("🔥 ACTIVE" if i == data["current_day"] else "⏳")
+    roadmap.append({
+        "Day": i, 
+        "Date": d.strftime("%d-%m-%Y (%a)"), 
+        "Syllabus Module": syllabus[i-1], 
+        "Status": status
     })
 
-df = pd.DataFrame(roadmap_list)
-
-# Stylized Display
-def color_status(val):
-    if val == "🔥 ACTIVE": return 'background-color: #722f37; color: white'
-    if val == "✅ Done": return 'color: #888888'
-    return ''
-
-st.dataframe(df.style.applymap(color_status, subset=['Status']), use_container_width=True, hide_index=True)
-
-# FOOTER CAPABILITY
-st.caption("Note: This system skips Sundays automatically. Using 'Carry Over' pushes all future dates forward without losing your progress history.")
+st.table(pd.DataFrame(roadmap))
