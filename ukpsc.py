@@ -1,60 +1,80 @@
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
-import datetime
-import sqlite3
 
-# --- DATABASE SETUP ---
-conn = sqlite3.connect('ukpsc_prep.db', check_same_thread=False)
-c = conn.cursor()
-c.execute('CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY, topic TEXT, status TEXT)')
+st.set_page_config(page_title="UKPSC Sentinel Agent", layout="wide", page_icon="🏔️")
 
-# --- UI CONFIG ---
-st.set_page_config(page_title="UKPSC Sentinel Agent", layout="wide")
-st.title("🏔️ UKPSC Prep Command Center")
-st.sidebar.header("Navigation")
-page = st.sidebar.radio("Go to", ["Dashboard", "Daily Briefing", "Task Manager"])
+# --- DATABASE CONNECTION ---
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 1. DASHBOARD PAGE ---
-if page == "Dashboard":
-    st.subheader(f"Today's Session: 10:00 PM - 02:00 AM")
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.info("🎯 Current Focus: Indian Polity & Uttarakhand Geography")
-        st.write("Countdown to Mains: **July 5, 2026**")
-    
-    with col2:
-        st.success("✅ Tasks Completed Today: 0")
-        st.warning("🟡 Tasks Pending: 3")
+# --- SIDEBAR NAVIGATION ---
+st.sidebar.title("🏔️ Sentinel Control")
+page = st.sidebar.radio("Navigate", ["Dashboard", "Daily Briefing", "Study Planner", "Settings"])
 
-# --- 2. DAILY BRIEFING PAGE ---
-elif page == "Daily Briefing":
-    st.header("🗞️ Top 10 News Briefing")
-    # Mock data - In a real app, this would be a function call to a scraper
-    news = [
-        "₹3,300 Cr Sharda River Corridor project launched in Champawat.",
-        "1 Year of UCC: CM reports zero 'halala' cases.",
-        "US Nagar rolls out AI-based grievance system.",
-        "Ban on digital devices inside Char Dham temples.",
-        "Asan Conservation Reserve: 5,000 birds recorded.",
-        "UK & Germany sign pact for tech cooperation.",
-        "India named 'Country of the Year' at BIOFACH 2026.",
-        "16th Finance Commission retains State tax share at 41%.",
-        "World Radio Day 2026: Focus on Himalayan communication.",
-        "New organic farming clusters announced for Almora."
+# --- CORE FUNCTION: PRE-FED SYLLABUS ---
+def get_master_plan():
+    # Example snippet of the 60-day plan (You can expand this list)
+    return [
+        {"Day": 1, "Subject": "History", "Topic": "Indus Valley & Ancient UK", "Status": "Planned"},
+        {"Day": 5, "Subject": "History", "Topic": "Mauryan Empire & Kunindas", "Status": "Planned"},
+        {"Day": 12, "Subject": "Polity", "Topic": "Fundamental Rights & UK Assembly", "Status": "Planned"},
+        {"Day": 26, "Subject": "Geography", "Topic": "Ganga River System & UK Hydrology", "Status": "Planned"},
+        {"Day": 46, "Subject": "Env", "Topic": "Biodiversity & UK National Parks", "Status": "Planned"},
     ]
-    for i, item in enumerate(news, 1):
-        st.write(f"**{i}.** {item}")
 
-# --- 3. TASK MANAGER PAGE ---
-elif page == "Task Manager":
-    st.header("📝 UKPSC Planner")
+# --- PAGE: STUDY PLANNER ---
+if page == "Study Planner":
+    st.header("📅 Chapter-Wise Study Tracker")
     
-    new_task = st.text_input("Add a new task (e.g., Read Chand Dynasty)")
-    if st.button("Add Task"):
-        c.execute('INSERT INTO tasks (topic, status) VALUES (?, ?)', (new_task, 'Pending'))
-        conn.commit()
+    # 1. Fetch current data from Google Sheets
+    try:
+        df = conn.read(worksheet="Tasks")
+    except:
+        df = pd.DataFrame(columns=["Day", "Subject", "Topic", "Status"])
+
+    # 2. Bulk Upload Button
+    if st.sidebar.button("🚀 Initialize 60-Day Master Plan"):
+        master_plan = pd.DataFrame(get_master_plan())
+        conn.update(worksheet="Tasks", data=master_plan)
+        st.success("Master Plan injected into Google Sheets!")
+        st.rerun()
+
+    # 3. Manual Entry Form
+    with st.expander("➕ Add Custom Task"):
+        with st.form("new_task"):
+            d = st.number_input("Day", min_value=1, max_value=60)
+            sub = st.selectbox("Subject", ["History", "Polity", "Geography", "Economy", "UK GK", "Env/Sci"])
+            top = st.text_input("Topic Name")
+            if st.form_submit_button("Add Task"):
+                new_row = pd.DataFrame([{"Day": d, "Subject": sub, "Topic": top, "Status": "Planned"}])
+                df = pd.concat([df, new_row], ignore_index=True)
+                conn.update(worksheet="Tasks", data=df)
+                st.rerun()
+
+    # 4. Display Tracker
+    st.dataframe(df.sort_values(by="Day"), use_container_width=True, hide_index=True)
+
+# --- PAGE: DASHBOARD ---
+elif page == "Dashboard":
+    st.header("📊 Preparation Overview")
+    col1, col2, col3 = st.columns(3)
     
-    # Show Tasks
-    data = pd.read_sql_query('SELECT * FROM tasks', conn)
-    st.dataframe(data, use_container_width=True)
+    df = conn.read(worksheet="Tasks")
+    total = len(df)
+    done = len(df[df['Status'] == 'Completed'])
+    
+    col1.metric("Total Topics", total)
+    col2.metric("Completed", done)
+    col3.metric("Remaining", total - done)
+    
+    st.progress(done/total if total > 0 else 0)
+
+# --- PAGE: DAILY BRIEFING ---
+elif page == "Daily Briefing":
+    st.header("🗞️ High-Yield Briefing (Feb 13, 2026)")
+    st.info("Target: Focus on UK Hydro-power projects and Current National Budget.")
+    st.markdown("""
+    1. **Sharda Corridor**: Environmental impact study released.
+    2. **UCC Uttarakhand**: 1st Anniversary implementation report.
+    3. **Ganga Water Quality**: CPCB report on Haridwar stretch.
+    """)
