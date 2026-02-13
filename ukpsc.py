@@ -20,7 +20,6 @@ if "Notes" not in df.columns:
     df["Notes"] = ""
 
 # 3. Sidebar Navigation
-st.sidebar.image("https://img.icons8.com/fluency/96/shield.png", width=80)
 st.sidebar.title("Sentinel Control")
 page = st.sidebar.radio("Navigate", ["📊 Dashboard", "📅 Calendar & Journey", "📝 Study Notes", "⚙️ Settings"])
 
@@ -52,69 +51,68 @@ if page == "📊 Dashboard":
         if not current_duty.empty:
             st.info(f"🚩 **Sentinel Duty (Day {days_since_start}):** {current_duty.iloc[0]['Subject']} — *{current_duty.iloc[0]['Topic']}*")
         else:
-            st.warning("🌙 Review Mode: Consolidate your notes!")
-
-    st.subheader("📋 Preparation Overview")
-    st.dataframe(df, use_container_width=True, hide_index=True)
+            st.warning("🌙 Review Mode: Consolidate your notes or plan ahead!")
 
 # --- CALENDAR & JOURNEY PAGE ---
 elif page == "📅 Calendar & Journey":
     st.title("📅 Study Schedule & Roadmap")
     
-    # Simple Calendar View
+    # Dynamic Calendar Mapping
     start_date = datetime(2026, 2, 13).date()
-    cal_data = []
+    cal_list = []
     for i, row in df.iterrows():
         date_obj = start_date + timedelta(days=int(row['Day']) - 1)
-        cal_data.append({"Date": date_obj, "Topic": row['Topic'], "Status": row['Status']})
+        cal_list.append({"Date": date_obj, "Topic": row['Topic'], "Status": row['Status']})
     
     st.write("### 🗓️ Upcoming Schedule")
-    st.table(pd.DataFrame(cal_data).set_index("Date").head(14)) # Shows next 2 weeks
+    st.dataframe(pd.DataFrame(cal_list), use_container_width=True, hide_index=True)
 
     st.divider()
     st.write("### 🛤️ Detailed Journey Expanders")
     for index, row in df.iterrows():
         with st.expander(f"Day {row['Day']}: {row['Subject']} ({row['Status']})"):
-            st.write(f"**Topic:** {row['Topic']}")
+            st.write(f"**Detailed Objective:** {row['Topic']}")
             if row['Notes']:
-                st.caption(f"📝 Quick Note: {row['Notes']}")
+                st.info(f"📝 **Note:** {row['Notes']}")
 
 # --- STUDY NOTES PAGE ---
 elif page == "📝 Study Notes":
     st.title("📝 Sentinel Study Notes")
-    st.write("Select a topic to save quick facts or review pointers.")
-    
     if not df.empty:
-        selected_topic = st.selectbox("Choose a Topic", df['Topic'].tolist())
-        current_note = df[df['Topic'] == selected_topic]['Notes'].values[0]
+        selected_topic = st.selectbox("Select Topic to Edit", df['Topic'].unique())
+        idx = df[df['Topic'] == selected_topic].index[0]
         
-        new_note = st.text_area("Write your notes here:", value=str(current_note) if current_note else "")
+        note_text = st.text_area("Observations/Quick Facts", value=df.at[idx, 'Notes'])
         
-        if st.button("💾 Save Note"):
-            df.loc[df['Topic'] == selected_topic, 'Notes'] = new_note
-            try:
-                conn.update(worksheet="Tasks", data=df)
-                st.success(f"Notes for '{selected_topic}' saved to Google Sheets!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Sync Error: {e}")
-    else:
-        st.warning("Please initialize your plan first.")
+        if st.button("💾 Save to Cloud"):
+            df.at[idx, 'Notes'] = note_text
+            conn.update(worksheet="Tasks", data=df)
+            st.success("Notes synced!")
+            st.rerun()
 
-# --- SETTINGS PAGE ---
+# --- SETTINGS / PLANNER ---
 elif page == "⚙️ Settings":
-    st.title("⚙️ System Configuration")
-    if st.button("🚀 Re-Initialize Full 60-Day Plan"):
-        # Initializing first 14 days of high-yield topics
-        full_plan = [
-            {"Day": 1, "Subject": "History", "Topic": "Indus Valley & Ancient UK", "Status": "Planned", "Notes": ""},
-            {"Day": 2, "Subject": "Polity", "Topic": "Preamble & Constitution Parts", "Status": "Planned", "Notes": ""},
-            {"Day": 3, "Subject": "Geography", "Topic": "Himalayan Rivers", "Status": "Planned", "Notes": ""},
-            {"Day": 4, "Subject": "UK GK", "Topic": "Garhwal District Profiles", "Status": "Planned", "Notes": ""},
+    st.title("⚙️ Roadmap Management")
+    if st.button("🚀 Initialize Full 60-Day Plan"):
+        # THE EXPANDED SYLLABUS LIST
+        full_roadmap = [
+            {"Day": 1, "Subject": "History", "Topic": "Indus Valley & Ancient UK (Kuninda/Katyuri)", "Status": "Planned", "Notes": ""},
+            {"Day": 2, "Subject": "Polity", "Topic": "Preamble & Constitution Parts/Schedules", "Status": "Planned", "Notes": ""},
+            {"Day": 3, "Subject": "Geography", "Topic": "Himalayan Rivers & UK Topography", "Status": "Planned", "Notes": ""},
+            {"Day": 4, "Subject": "UK GK", "Topic": "Garhwal District Profiles & History", "Status": "Planned", "Notes": ""},
             {"Day": 5, "Subject": "History", "Topic": "Chand & Panwar Dynasties", "Status": "Planned", "Notes": ""},
-            {"Day": 6, "Subject": "Economy", "Topic": "UK Budget Highlights", "Status": "Planned", "Notes": ""},
-            {"Day": 7, "Subject": "Revision", "Topic": "Week 1 Cumulative Mock", "Status": "Planned", "Notes": ""},
+            {"Day": 6, "Subject": "Economy", "Topic": "UK Budget & Major State Schemes", "Status": "Planned", "Notes": ""},
+            {"Day": 7, "Subject": "Revision", "Topic": "Week 1 Cumulative Mock Test", "Status": "Planned", "Notes": ""},
+            {"Day": 8, "Subject": "History", "Topic": "Medieval India: Delhi Sultanate & Mughals", "Status": "Planned", "Notes": ""},
+            {"Day": 9, "Subject": "Polity", "Topic": "Fundamental Rights & DPSP", "Status": "Planned", "Notes": ""},
+            {"Day": 10, "Subject": "Geography", "Topic": "Climate & Forests of India/UK", "Status": "Planned", "Notes": ""},
+            {"Day": 11, "Subject": "UK GK", "Topic": "Tribes of Uttarakhand & Culture", "Status": "Planned", "Notes": ""},
+            {"Day": 12, "Subject": "History", "Topic": "Gorkha Rule & British Entry in UK", "Status": "Planned", "Notes": ""},
+            {"Day": 13, "Subject": "General Science", "Topic": "Human Biology & State Environment", "Status": "Planned", "Notes": ""},
+            {"Day": 14, "Subject": "Revision", "Topic": "Week 2 Revision & PYQ Analysis", "Status": "Planned", "Notes": ""},
+            # You can simply keep adding rows here to reach Day 60!
         ]
-        conn.update(worksheet="Tasks", data=pd.DataFrame(full_plan))
-        st.success("Detailed Roadmap Initialized!")
+        
+        conn.update(worksheet="Tasks", data=pd.DataFrame(full_roadmap))
+        st.success("Syllabus expanded to 14 days! (Continue adding rows in code for Day 60)")
         st.rerun()
