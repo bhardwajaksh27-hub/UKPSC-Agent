@@ -1,194 +1,234 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
+import json
+import os
 
-# 1. System Configuration
-st.set_page_config(page_title="UKPSC Sentinel", layout="wide", page_icon="🏔️")
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- 1. DATA PERSISTENCE LAYER ---
+DATA_FILE = "ukpsc_study_vault.json"
 
-# 2. THE COMPLETE 60-DAY SYLLABUS (Hard-coded for stability)
-MASTER_SYLLABUS = [
-    {"Day": 1, "Subject": "History", "Topic": "Harappa: Town Planning, Seals, Trade. Vedic: Early/Later, Rivers, Sabha/Samiti."},
-    {"Day": 2, "Subject": "History", "Topic": "16 Mahajanapadas & Magadh Rise. Jainism & Buddhism Councils & Philosophy."},
-    {"Day": 3, "Subject": "History", "Topic": "Mauryas: Admin & Ashoka's Dhamma. Post-Mauryan: Kushanas & Art Schools."},
-    {"Day": 4, "Subject": "History (UK)", "Topic": "Ancient UK: Kuninda (Amoghbhuti coins), Yaudheya, Katyuri Admin & Architecture."},
-    {"Day": 5, "Subject": "History", "Topic": "Guptas: Golden Age Admin, Literature, Science. Harshavardhana & South Dynasties."},
-    {"Day": 6, "Subject": "History", "Topic": "Delhi Sultanate: Slave to Lodi. Market Reforms & Indo-Islamic Architecture."},
-    {"Day": 7, "Subject": "REVISION", "Topic": "Mock 1: Ancient & Medieval Comprehensive Revision."},
-    {"Day": 8, "Subject": "History (UK)", "Topic": "Medieval UK: Chand Dynasty (Kumaon), Parmar (Garhwal). Gorkha Rule (1790-1815)."},
-    {"Day": 9, "Subject": "History", "Topic": "Modern: European Arrival, Battle of Plassey/Buxar. Land Revenue Systems."},
-    {"Day": 10, "Subject": "History", "Topic": "1857 Revolt: UK's Role. Socio-Religious Reforms: Brahmo & Arya Samaj."},
-    {"Day": 11, "Subject": "History (UK)", "Topic": "Modern UK: Sugauli Treaty, British Admin, Coolie Begar & Dola Palki Movement."},
-    {"Day": 12, "Subject": "History", "Topic": "National Mov: Gandhi Era (Non-Coop, Civil Dis, Quit India). Cabinet Mission."},
-    {"Day": 13, "Subject": "History (UK)", "Topic": "UK Statehood: Tehri Merger (1949), 1994 Muzaffarnagar Kand, Formation 2000."},
-    {"Day": 14, "Subject": "REVISION", "Topic": "Mock 2: Modern History & UK Statehood Mastery."},
-    {"Day": 15, "Subject": "Geo (World)", "Topic": "Solar System, Lithosphere: Rocks. Atmosphere: Layers, Winds, Pressure."},
-    {"Day": 16, "Subject": "Geo (World)", "Topic": "Hydrosphere: Ocean Relief, Currents, Tides, Salinity."},
-    {"Day": 17, "Subject": "Geo (India)", "Topic": "Relief: Himalayas, Plains, Peninsula. Climate: Monsoon Mechanism."},
-    {"Day": 18, "Subject": "Geo (India)", "Topic": "Drainage: Himalayan vs Peninsular Rivers. Soils, Vegetation."},
-    {"Day": 19, "Subject": "Geo (UK)", "Topic": "UK Relief: Glaciers, River Systems (Ganga, Yamuna, Kali). Climate."},
-    {"Day": 20, "Subject": "Geo (UK)", "Topic": "Resources: UK Forest Policy, Jim Corbett Park, Minerals & 2011 Census."},
-    {"Day": 21, "Subject": "REVISION", "Topic": "Mock 3: Geography (World, India, UK)."},
-    {"Day": 22, "Subject": "Polity", "Topic": "Constitution: Preamble, Rights, DPSP & Duties. Amendments (42/44)."},
-    {"Day": 23, "Subject": "Polity", "Topic": "Parliament: President, PM, Committees. Judiciary: SC/HC Writs."},
-    {"Day": 24, "Subject": "Polity", "Topic": "Bodies: Election Comm, CAG, UPSC, Lokpal. Federalism."},
-    {"Day": 25, "Subject": "Polity (UK)", "Topic": "UK Admin: Governor, CM, Legislative Assembly. Secretariat."},
-    {"Day": 26, "Subject": "Polity (UK)", "Topic": "Local Gov: 73rd/74th Amnds. UK Panchayati Raj Act & RTI."},
-    {"Day": 27, "Subject": "Polity", "Topic": "Public Policy: Welfare Schemes, Human Rights, Citizen's Charter."},
-    {"Day": 28, "Subject": "REVISION", "Topic": "Mock 4: Indian Polity & UK Governance."},
-    {"Day": 29, "Subject": "Economy", "Topic": "Indian Economy Features, NITI Aayog. LPG Reforms 1991."},
-    {"Day": 30, "Subject": "Economy", "Topic": "Banking: RBI (Monetary Policy), SEBI, NABARD. Stock Markets."},
-    {"Day": 31, "Subject": "Economy", "Topic": "Public Finance: Budget, GST, Finance Commission. Poverty."},
-    {"Day": 32, "Subject": "Economy (UK)", "Topic": "UK Economy: Per Capita Income, Budget. Tourism Policy."},
-    {"Day": 33, "Subject": "Economy (UK)", "Topic": "Agriculture in UK: Horticulture, MSME Policy, Medicinal Herbs."},
-    {"Day": 34, "Subject": "Economy", "Topic": "SDG Goals, HDI Index, WTO & IMF."},
-    {"Day": 35, "Subject": "REVISION", "Topic": "Mock 5: Economy (India & UK)."},
-    {"Day": 36, "Subject": "Science", "Topic": "Physics: Light, Sound, Nuclear Energy. Chemistry: Acids/Bases."},
-    {"Day": 37, "Subject": "Science", "Topic": "Biology: Cell, Genetics, Human Systems (Circulation/Digestion)."},
-    {"Day": 38, "Subject": "Science", "Topic": "ICT: E-Governance, Internet, Cyber Security. ISRO."},
-    {"Day": 39, "Subject": "Science", "Topic": "Environment: Ecology, Food Chain, Biodiversity Hotspots (UK)."},
-    {"Day": 40, "Subject": "Science (UK)", "Topic": "Disaster Mgmt: Earthquakes/Landslides, SDMA structure."},
-    {"Day": 41, "Subject": "Science", "Topic": "Space & Defense: Nuclear Power, DRDO, Recent Tech Updates."},
-    {"Day": 42, "Subject": "REVISION", "Topic": "Mock 6: General Science & Tech."},
-    {"Day": 43, "Subject": "Culture (UK)", "Topic": "UK Tribes: Bhotia, Tharu, Jaunsari, Buxa, Raji. Folk Arts."},
-    {"Day": 44, "Subject": "Culture (UK)", "Topic": "Fairs & Festivals: Nanda Devi, Kumbh. Panch Kedar/Badri."},
-    {"Day": 45, "Subject": "Current", "Topic": "National: Awards, Sports, Summits, Appointments. Reports."},
-    {"Day": 46, "Subject": "Current", "Topic": "International: UN, BRICS, G20. World Indices."},
-    {"Day": 47, "Subject": "Current (UK)", "Topic": "UK State Current: Budget, CM Dashboards, Welfare Schemes."},
-    {"Day": 48, "Subject": "Current", "Topic": "Sports: Olympics, Cricket. Famous UK Personalities."},
-    {"Day": 49, "Subject": "REVISION", "Topic": "Mock 7: Culture & Year-long Current Affairs."},
-    {"Day": 50, "Subject": "CSAT", "Topic": "Reasoning: Coding-Decoding, Blood Relations, Direction Sense."},
-    {"Day": 51, "Subject": "CSAT", "Topic": "Reasoning: Syllogism, Venn Diagrams, Seating Arrangement."},
-    {"Day": 52, "Subject": "CSAT", "Topic": "Numerical: Number System, Ratio, Percentage, Average."},
-    {"Day": 53, "Subject": "CSAT", "Topic": "Numerical: Profit/Loss, Time & Work, Data Interpretation."},
-    {"Day": 54, "Subject": "CSAT", "Topic": "Comprehension: English Passage Reading & Vocabulary."},
-    {"Day": 55, "Subject": "CSAT", "Topic": "General Hindi: Grammar, Tatsam-Tadbhav, Antonyms."},
-    {"Day": 56, "Subject": "REVISION", "Topic": "CSAT Full Mock Simulation."},
-    {"Day": 57, "Subject": "MOCK", "Topic": "GS Full Mock 1: Entire Paper I Simulation."},
-    {"Day": 58, "Subject": "MOCK", "Topic": "CSAT Full Mock 2: Entire Paper II Simulation."},
-    {"Day": 59, "Subject": "MOCK", "Topic": "GS Full Mock 3: Revision of Weak Topics."},
-    {"Day": 60, "Subject": "MOCK", "Topic": "FINAL SIMULATION: Combined Paper I & II prep."}
-]
-
-# 3. PERSISTENCE ENGINE
 def load_data():
-    try:
-        data = conn.read(worksheet="Tasks", ttl=0)
-    except:
-        data = pd.DataFrame()
-        
-    master_df = pd.DataFrame(MASTER_SYLLABUS)
-    
-    # Merge cloud data if it exists
-    if not data.empty:
-        for col in ["Status", "Notes", "Start_Time", "End_Time", "Resources"]:
-            if col in data.columns:
-                mapping = dict(zip(data["Day"], data[col]))
-                master_df[col] = master_df["Day"].map(mapping).fillna("")
-            else:
-                master_df[col] = ""
-    else:
-        for col in ["Status", "Notes", "Start_Time", "End_Time", "Resources"]:
-            master_df[col] = ""
-    return master_df
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as f:
+            return json.load(f)
+    return {
+        "current_day": 1,
+        "shift_days": 0,
+        "logs": [],
+        "notes": {},  
+        "is_active": False,
+        "start_time": None
+    }
 
 def save_data(data):
-    conn.update(worksheet="Tasks", data=data)
-    st.cache_data.clear() 
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f)
 
-df = load_data()
+data = load_data()
 
-# 4. SIDEBAR
-st.sidebar.title("Sentinel Command")
-page = st.sidebar.radio("Navigate", ["📊 Dashboard", "📅 60-Day Roadmap", "📚 Digital Library", "📝 Study Notes", "⚙️ Engine Room"])
+# --- 2. FULL 60-WORKING-DAY SYLLABUS ---
+# Comprehensive UKPSC Prelims + Mains Syllabus
+syllabus = [
+    # ANCIENT & MEDIEVAL HISTORY
+    "Day 1: Harappan Civilization - Town Planning, Seals, Trade & Urbanism (NCERT/NIOS Focus)",
+    "Day 2: Vedic Age - Early vs Later Vedic Society, Rivers, Sabha/Samiti & Political Shift",
+    "Day 3: Mahajanapadas, Buddhism & Jainism - Philosophy, Councils & Impact",
+    "Day 4: Mauryan Empire - Administration, Ashokan Edicts & Mauryan Art",
+    "Day 5: Post-Mauryan (Kushanas/Satvahanas) & Gupta Golden Age - Science & Literature",
+    "Day 6: Early Medieval India - Harshavardhana, Cholas & Arrival of Islam",
+    "Day 7: Delhi Sultanate - Administration, Market Reforms (Alauddin) & Architecture",
+    "Day 8: Mughal Empire - Akbar's Mansabdari, Land Revenue & Cultural Synthesis",
+    "Day 9: Maratha Empire - Shivaji's Administration (Ashtapradhan) & Decline of Mughals",
+    # MODERN HISTORY
+    "Day 10: British Expansion - Plassey, Buxar & Subsidiary Alliance/Doctrine of Lapse",
+    "Day 11: 1857 Revolt - Causes, Nature & Impact in Uttarakhand (Kalu Mahara)",
+    "Day 12: Social-Religious Reform Movements (Raja Ram Mohan Roy, Dayanand Saraswati)",
+    "Day 13: Indian National Congress - Moderate Phase & Extremist Rise (1885-1905)",
+    "Day 14: Gandhian Era I - NCM, Khilafat & Civil Disobedience Movement",
+    "Day 15: Gandhian Era II - Quit India Movement, INA & Partition/Independence",
+    # UTTARAKHAND SPECIAL (HISTORY & CULTURE)
+    "Day 16: UK Special - Ancient Tribes (Kunindas, Yaudheyas) & Katyuri Dynasty",
+    "Day 17: UK Special - Chand Dynasty (Kumaon) & Parmar Dynasty (Garhwal)",
+    "Day 18: UK Special - Gorkha Rule (1790-1815) & British Kumaon/Garhwal Administration",
+    "Day 19: UK Special - Uttarakhand Freedom Struggle & Statehood Movement",
+    "Day 20: UK Special - Culture, Festivals, Folk Art & Tribes of Uttarakhand",
+    # GEOGRAPHY (INDIA & WORLD)
+    "Day 21: Physical Geography - Himalayas, Indo-Gangetic Plains & Peninsular Plateau",
+    "Day 22: Climate - Indian Monsoon, Jet Streams & Western Disturbances",
+    "Day 23: Drainage System - Himalayan Rivers (Ganga, Yamuna) vs Peninsular Rivers",
+    "Day 24: Soil, Natural Vegetation & Agriculture in India",
+    "Day 25: World Geography - Latitudes, Longitudes & Major Continents/Oceans",
+    # UTTARAKHAND GEOGRAPHY
+    "Day 26: UK Geography - River Systems (Alaknanda, Bhagirathi, Kali, Yamuna)",
+    "Day 27: UK Geography - Glaciers, Mountain Peaks & Lakes of Uttarakhand",
+    "Day 28: UK Geography - Disaster Management (Landslides, Flash Floods, Earthquake zones)",
+    "Day 29: UK Geography - Forests, Wildlife (National Parks) & Mineral Resources",
+    # POLITY & CONSTITUTION
+    "Day 30: Constitutional Framework - Preamble, Citizenship & FRs/DPSPs/FDs",
+    "Day 31: Union Executive - President, VP, PM & Council of Ministers",
+    "Day 32: Parliament - Composition, Sessions, Bills & Committees",
+    "Day 33: State Government - Governor, CM & State Legislature (Special UK focus)",
+    "Day 34: Judiciary - Supreme Court, High Court & PIL/Judicial Activism",
+    "Day 35: Local Governance - 73rd/74th Amendments & Panchayati Raj in Hills",
+    "Day 36: Constitutional & Non-Constitutional Bodies (Election Commission, UPSC, UKPSC)",
+    # ECONOMY
+    "Day 37: Basic Economics - National Income, Inflation, Banking & Monetary Policy",
+    "Day 38: Fiscal Policy - Budgeting Process, GST & Financial Relations",
+    "Day 39: UK Economy - Tourism (Chardham), Horticulture & Hydro-power potential",
+    "Day 40: UK Economy - Migration (Palayan) Issues & MSME Sector in Hills",
+    # GENERAL SCIENCE & ENVIRONMENT
+    "Day 41: Physics - Optics, Sound, Electricity & Nuclear Energy",
+    "Day 42: Chemistry - Carbon, Polymers, Acids/Bases & Everyday Chemistry",
+    "Day 43: Biology - Cell Structure, Human Systems, Nutrition & Diseases",
+    "Day 44: Environment - Biodiversity, Climate Change & Himalayan Ecology",
+    "Day 45: Tech - Space, Defense, Biotechnology & IT in Governance",
+    # ETHICS (MAINS PAPER VI)
+    "Day 46: Ethics - Human Values, Attitude & Aptitude for Civil Services",
+    "Day 47: Emotional Intelligence - Concept & Application in Administration",
+    "Day 48: Probity in Governance - RTI, Citizen Charters & Code of Ethics",
+    "Day 49: Ethics Case Studies - Ethical Dilemmas in Public Service",
+    # INTERNATIONAL RELATIONS & CURRENT AFFAIRS
+    "Day 50: IR - India & Neighbors (Focus on Nepal Border & China Policy)",
+    "Day 51: Global Groups - UN, G20, BRICS, SCO & QUAD",
+    "Day 52: UK Current Affairs - State Govt Schemes & Current Budget Highlights",
+    "Day 53: National/International Current Affairs Compilation",
+    # REVISION & MOCKS
+    "Day 54: Revision - Ancient & Medieval History + UK History",
+    "Day 55: Revision - Modern History + Indian Polity",
+    "Day 56: Revision - Geography (India/World) + UK Geography",
+    "Day 57: Revision - Economy + Science/Environment",
+    "Day 58: Mock Test 01 - General Studies Paper I (Prelims Style)",
+    "Day 59: Mock Test 02 - CSAT & Ethics (Mains Paper VI)",
+    "Day 60: Final Revision & Strategy Review"
+]
 
-# --- PAGE: DASHBOARD ---
-if page == "📊 Dashboard":
-    st.title("🏔️ UKPSC Sentinel Dashboard")
-    start_date = datetime(2026, 2, 13).date()
-    days_passed = (datetime.now().date() - start_date).days + 1
+# --- 3. DATE & CALENDAR LOGIC ---
+def get_date(working_day_num, shift):
+    """Calculates date by skipping Sundays and adding carry-over shifts."""
+    start_date = datetime(2026, 2, 16) # Reference start: Feb 16, 2026 (Monday)
+    current_date = start_date
+    count = 0
+    target = working_day_num + shift
     
-    today_task = df[df["Day"] == days_passed]
+    while count < target:
+        if current_date.weekday() != 6: # Skip Sundays
+            count += 1
+        if count < target:
+            current_date += timedelta(days=1)
+    return current_date
+
+# --- 4. APP INTERFACE ---
+st.set_page_config(page_title="UKPSC Warrior ERP", layout="wide")
+
+# Sidebar: Monthly Calendar Dashboard
+with st.sidebar:
+    st.header("🗓️ Dashboard")
+    today = datetime.now()
+    st.write(f"**Today:** {today.strftime('%A, %d %b %Y')}")
+    st.write(f"**Current Study Day:** {data['current_day']}")
     
-    if not today_task.empty:
-        row = today_task.iloc[0]
-        idx = today_task.index[0]
-        
-        c1, c2 = st.columns([2, 1])
-        with c1:
-            st.info(f"🚩 **Current Duty: Day {days_passed}**")
-            st.header(f"{row['Subject']}: {row['Topic']}")
-            
-            # Resources
-            res_links = [l.strip() for l in str(row['Resources']).split(",") if "http" in l]
-            if res_links:
-                st.write("### 📖 Study Resources")
-                for i, link in enumerate(res_links):
-                    st.link_button(f"({chr(97+i)}) Open Resource", link)
-            else:
-                st.warning("⚠️ No links saved for this topic yet.")
-        
-        with c2:
-            st.write("### ⚡ Quick Actions")
-            with st.expander("✅ Log Completion", expanded=True):
-                s = st.text_input("Start Time", "10:00 PM")
-                e = st.text_input("End Time", "12:00 AM")
-                if st.button("Save To Roadmap"):
-                    df.at[idx, "Status"] = "Completed"
-                    df.at[idx, "Start_Time"] = s
-                    df.at[idx, "End_Time"] = e
-                    save_data(df); st.rerun()
-            
-            if st.button("☕ Take Break (Shift Schedule)"):
-                mask = df["Day"] >= days_passed
-                df.loc[mask, "Day"] += 1
-                save_data(df); st.rerun()
-    else:
-        st.error("Schedule out of bounds. Check the 60-Day Roadmap.")
+    # Visual Monday-Start Table (Simplified representation)
+    st.markdown("---")
+    st.write("**Feb/Mar 2026 Grid**")
+    st.caption("M T W T F S [S]")
+    # Highlight logic
+    st.markdown(f"<h1 style='color: #FF4B4B; text-align: center;'>DAY {data['current_day']}</h1>", unsafe_allow_html=True)
+    st.progress(data['current_day'] / 60)
 
-    st.divider()
-    st.subheader("📋 Upcoming Agenda (Next 10 Days)")
-    agenda = df[df["Day"] >= days_passed].sort_values("Day").head(10)
-    st.table(agenda[["Day", "Subject", "Topic", "Status"]])
+# Main Body
+st.title("🏹 UKPSC 60-Working-Day Planner")
 
-# --- PAGE: DIGITAL LIBRARY ---
-elif page == "📚 Digital Library":
-    st.title("📚 Persistent Repository")
-    target = st.selectbox("Assign resource to topic:", df["Topic"].tolist())
-    idx = df[df['Topic'] == target].index[0]
-    url = st.text_input("Paste Resource URL:")
-    if st.button("💾 Store in Repository"):
-        curr = str(df.at[idx, "Resources"]).replace('nan', '').strip()
-        df.at[idx, "Resources"] = f"{curr}, {url}" if curr else url
-        save_data(df); st.success("Saved to Cloud!"); st.rerun()
-    
-    st.divider()
-    st.subheader("📂 All Stored Books")
-    active_lib = df[df["Resources"].str.contains("http", na=False)]
-    for _, r in active_lib.iterrows():
-        with st.expander(f"📚 {r['Topic']}"):
-            for link in r['Resources'].split(","):
-                st.write(link.strip())
+# TOP SECTION: Attendance & Carry Over
+cur_day = data["current_day"]
+st.subheader(f"📖 Active Topic: {syllabus[cur_day-1]}")
 
-# --- PAGE: STUDY NOTES ---
-elif page == "📝 Study Notes":
-    st.title("📝 High-Yield Notes")
-    target = st.selectbox("Note for:", df["Topic"].tolist())
-    idx = df[df['Topic'] == target].index[0]
-    txt = st.text_area("Write Notes:", value=str(df.at[idx, 'Notes']).replace('nan', ''), height=400)
-    if st.button("💾 Sync to Cloud"):
-        df.at[idx, 'Notes'] = txt
-        save_data(df); st.success("Synced!")
+col1, col2, col3, col4 = st.columns(4)
 
-# --- PAGE: ROADMAP ---
-elif page == "📅 60-Day Roadmap":
-    st.title("📅 Master Tracker")
-    st.dataframe(df.sort_values("Day"), use_container_width=True, hide_index=True)
+if col1.button("▶️ Start Session"):
+    data["is_active"] = True
+    data["start_time"] = datetime.now().strftime("%I:%M %p")
+    save_data(data)
+    st.rerun()
 
-# --- PAGE: ENGINE ROOM ---
-elif page == "⚙️ Engine Room":
-    st.title("⚙️ Engine Room")
-    if st.button("🚀 SYNC LOCAL SYLLABUS TO CLOUD"):
-        save_data(df)
-        st.success("Cloud data aligned with Master Syllabus!")
+if col2.button("⏹️ Stop (Record Break)"):
+    # Limit to 5 breaks logic
+    today_logs = [l for l in data["logs"] if l["day"] == cur_day]
+    if data["is_active"] and len(today_logs) < 5:
+        stop_time = datetime.now().strftime("%I:%M %p")
+        data["logs"].append({
+            "day": cur_day,
+            "start": data["start_time"],
+            "stop": stop_time,
+            "date": datetime.now().strftime("%Y-%m-%d")
+        })
+        data["is_active"] = False
+        data["start_time"] = None
+        save_data(data)
+        st.rerun()
+    elif len(today_logs) >= 5:
+        st.error("Max 5 break segments reached for today.")
+
+if col3.button("🔄 Carry Over Topic"):
+    data["shift_days"] += 1
+    save_data(data)
+    st.warning("Topic not finished. Schedule shifted by +1 Working Day.")
+    st.rerun()
+
+if col4.button("✅ Mark Day Complete"):
+    data["current_day"] += 1
+    save_data(data)
+    st.success("Moving to next day!")
+    st.rerun()
+
+# ATTENDANCE LOGS DISPLAY
+active_logs = [l for l in data["logs"] if l["day"] == cur_day]
+if active_logs:
+    with st.expander("🕒 View Today's Study Segments"):
+        for i, log in enumerate(active_logs):
+            st.write(f"**Segment {i+1}:** {log['start']} to {log['stop']}")
+
+# --- 5. STUDY NOTES SECTION ---
+st.divider()
+st.subheader("📝 NCERT & NIOS Study Vault")
+current_note_key = str(cur_day)
+saved_note = data["notes"].get(current_note_key, "")
+
+note_content = st.text_area(
+    f"Draft your notes for Day {cur_day} (e.g., Harappan Town Planning or Vedic Rivers):",
+    value=saved_note,
+    height=250,
+    placeholder="Paste your summaries from NCERT Class 12 and NIOS here..."
+)
+
+if st.button("💾 Save My Notes"):
+    data["notes"][current_note_key] = note_content
+    save_data(data)
+    st.toast("Notes saved successfully!")
+
+# --- 6. DYNAMIC ROADMAP TABLE ---
+st.divider()
+st.subheader("🗓️ Personalized Roadmap (Auto-Adjusted)")
+
+roadmap_list = []
+for i in range(1, 61):
+    actual_date = get_date(i, data["shift_days"])
+    status = "✅ Done" if i < data["current_day"] else ("🔥 ACTIVE" if i == data["current_day"] else "⏳ Pending")
+    roadmap_list.append({
+        "Status": status,
+        "Day": i,
+        "Date": actual_date.strftime("%d-%m-%Y (%a)"),
+        "Syllabus Module": syllabus[i-1]
+    })
+
+df = pd.DataFrame(roadmap_list)
+
+# Stylized Display
+def color_status(val):
+    if val == "🔥 ACTIVE": return 'background-color: #722f37; color: white'
+    if val == "✅ Done": return 'color: #888888'
+    return ''
+
+st.dataframe(df.style.applymap(color_status, subset=['Status']), use_container_width=True, hide_index=True)
+
+# FOOTER CAPABILITY
+st.caption("Note: This system skips Sundays automatically. Using 'Carry Over' pushes all future dates forward without losing your progress history.")
