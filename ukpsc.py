@@ -7,20 +7,25 @@ from datetime import datetime
 st.set_page_config(page_title="UKPSC Sentinel", layout="wide", page_icon="🏔️")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+# 2. DATA ENGINE: Column repair & Type Safety
 def load_and_repair_data():
     try:
         data = conn.read(worksheet="Tasks", ttl=0)
         expected = ["Day", "Subject", "Topic", "Status", "Notes", "Start_Time", "End_Time", "Resources"]
+        
+        # Repair column headers
         if "Topic" not in data.columns:
             if len(data.columns) >= len(expected):
                 data.columns = expected[:len(data.columns)]
             else:
                 return pd.DataFrame(columns=expected)
-        data = data.dropna(subset=['Day'])
+        
+        # TYPE SAFETY: Ensure Resources is string to prevent str.contains crash
+        data["Resources"] = data["Resources"].astype(str).replace('nan', '')
         data["Day"] = pd.to_numeric(data["Day"], errors='coerce').fillna(0).astype(int)
         return data
     except Exception:
-        return pd.DataFrame(columns=expected)
+        return pd.DataFrame(columns=["Day", "Subject", "Topic", "Status", "Notes", "Start_Time", "End_Time", "Resources"])
 
 df = load_and_repair_data()
 
@@ -33,7 +38,7 @@ def trigger_break_day(current_day_val):
     mask = df["Day"] >= current_day_val
     df.loc[mask, "Day"] = df.loc[mask, "Day"] + 1
     conn.update(worksheet="Tasks", data=df)
-    st.toast(f"Schedule shifted!", icon="☕")
+    st.toast(f"Schedule shifted! Current day is now a break.", icon="☕")
     st.rerun()
 
 # --- DASHBOARD ---
@@ -45,140 +50,159 @@ if page == "📊 Dashboard":
     today_task = df[df["Day"] == days_passed]
     if not today_task.empty:
         row = today_task.iloc[0]
-        st.info(f"🚩 **Day {days_passed} Target**")
+        st.info(f"🚩 **Day {days_passed} Duty**")
         st.header(f"{row['Subject']}: {row['Topic']}")
         
-        # Multi-link view
+        # Display multiple resources as buttons
         res_str = str(row.get('Resources', ""))
         links = [l.strip() for l in res_str.split(",") if l.strip().startswith("http")]
         if links:
-            st.write("### 📖 Books & Resources")
+            st.write("### 📖 Books & References")
             cols = st.columns(len(links))
             for i, link in enumerate(links):
-                cols[i].link_button(f"Resource {i+1}", link, use_container_width=True)
+                cols[i].link_button(f"Book {i+1}", link, use_container_width=True)
     else:
-        st.success("Welcome! Go to Engine Room to deploy the full syllabus.")
+        st.success("Target complete or Engine Room needs Deployment.")
 
-# --- ENGINE ROOM: THE FULL DETAILED SYLLABUS ---
+    with st.expander("🚨 Emergency Schedule Shift"):
+        if st.button("☕ Take a Break Today"):
+            trigger_break_day(days_passed)
+
+# --- ENGINE ROOM: 100% COMPLETE GRANULAR SYLLABUS ---
 elif page == "⚙️ Engine Room":
     st.title("⚙️ System Core")
-    if st.button("🚀 DEPLOY FULL DETAILED 60-DAY SYLLABUS"):
-        # COMPLETELY EXPANDED SYLLABUS MAPPING
+    if st.button("🚀 DEPLOY FULL SYLLABUS (60 DAYS)"):
         full_curriculum = [
-            # WEEK 1: Ancient & Medieval (India & UK)
-            {"Day": 1, "Sub": "History", "Top": "Harappa: Town Planning, Seals, Trade. Vedic: Early & Later, Rigvedic Rivers, Sabha/Samiti."},
-            {"Day": 2, "Sub": "History", "Top": "Mahajanapadas (16), Magadh Rise. Jainism/Buddhism: Councils, Philosophy, Patronage."},
-            {"Day": 3, "Sub": "History", "Top": "Mauryas: Chandragupta, Ashoka's Dhamma, Admin. Kushanas: Kanishka & Art Schools."},
-            {"Day": 4, "Sub": "History (UK)", "Top": "Ancient UK: Kunindas (Amoghbhuti coins), Yaudheya, Katyuri Admin & Jageshwar Architecture."},
-            {"Day": 5, "Sub": "History", "Top": "Gupta: Admin, Golden Age Literature (Kalidasa), Science (Aryabhatta). Harshavardhana."},
-            {"Day": 6, "Sub": "History", "Top": "Delhi Sultanate: Slave, Khilji (Market reforms), Tughlaq (Admin), Lodi. Indo-Islamic Art."},
-            {"Day": 7, "Sub": "REVISION", "Top": "Unit 1 Mock: Ancient & Medieval Comprehensive Revision."},
-            
-            # WEEK 2: Medieval UK & Modern India
-            {"Day": 8, "Sub": "History (UK)", "Top": "Medieval UK: Chand Dynasty (Kumaon), Parmar (Garhwal). Gorkha Rule & Invasion (1790-1815)."},
-            {"Day": 9, "Sub": "History", "Top": "Modern: European Arrival, Battle of Plassey/Buxar. Land Revenue: Zamindari, Ryotwari, Mahalwari."},
-            {"Day": 10, "Sub": "History", "Top": "1857 Revolt: Causes, Centres & Leaders. Socio-Religious: Brahmo Samaj, Arya Samaj, Aligarh Mov."},
-            {"Day": 11, "Sub": "History (UK)", "Top": "Modern UK: Treaty of Sugauli, British Admin in UK, Coolie Begar & Dola Palki Movement."},
-            {"Day": 12, "Sub": "History", "Top": "National Mov: Gandhi Era (Non-Cooperation, Civil Disobedience, Quit India). Cabinet Mission."},
-            {"Day": 13, "Sub": "History (UK)", "Top": "UK Statehood: Tehri State Merger (1949), 1994 Muzaffarnagar Kand, Formation of UK 2000."},
+            # UNIT 1: HISTORY (India & Uttarakhand)
+            {"Day": 1, "Sub": "History", "Top": "Harappa: Town Planning, Trade, Religion. Vedic: Rigvedic Society vs Later Vedic transitions."},
+            {"Day": 2, "Sub": "History", "Top": "16 Mahajanapadas & Rise of Magadh. Jainism & Buddhism: Councils, Philosophy, Patronage."},
+            {"Day": 3, "Sub": "History", "Top": "Mauryas: Admin & Ashoka's Dhamma. Post-Mauryan: Kushanas (Kanishka) & Satvahanas."},
+            {"Day": 4, "Sub": "History (UK)", "Top": "Ancient UK: Kuninda Coins, Yaudheya, Katyuri Admin & Jageshwar/Adi-Badri temples."},
+            {"Day": 5, "Sub": "History", "Top": "Guptas: Golden Age Admin, Literature (Kalidasa), Science. Harsha & South Indian Dynasties."},
+            {"Day": 6, "Sub": "History", "Top": "Delhi Sultanate: Slave, Khilji Market Reforms, Tughlaq Admin, Lodi. Bhakti & Sufi Movements."},
+            {"Day": 7, "Sub": "REVISION", "Top": "Unit 1 Mock: Ancient & Medieval Comprehensive Analysis."},
+            {"Day": 8, "Sub": "History (UK)", "Top": "Medieval UK: Chand (Kumaon) & Parmar (Garhwal) Dynasties. Gorkha Rule (1790-1815)."},
+            {"Day": 9, "Sub": "History", "Top": "Mughals: Mansabdari, Art, Admin. Modern: European Arrival & Battles of Plassey/Buxar."},
+            {"Day": 10, "Sub": "History", "Top": "1857 Revolt: UK's Role. Socio-Religious Reforms: Brahmo, Arya Samaj, Ramakrishna Mission."},
+            {"Day": 11, "Sub": "History (UK)", "Top": "Modern UK: Sugauli Treaty, British Kumaon/Garhwal Admin, Coolie Begar & Dola Palki."},
+            {"Day": 12, "Sub": "History", "Top": "Freedom Struggle: Gandhi Era, Revolutionary Movements, Cabinet Mission & Independence."},
+            {"Day": 13, "Sub": "History (UK)", "Top": "UK Statehood: Tehri Merger (1949), 1994 Muzaffarnagar Kand, Formation 2000."},
             {"Day": 14, "Sub": "REVISION", "Top": "Unit 1 Mock: Modern History & UK Statehood Mastery."},
 
-            # WEEK 3: Geography (Unit 2)
-            {"Day": 15, "Sub": "Geo (World)", "Top": "Solar System, Lithosphere: Earth's Structure, Rocks. Atmosphere: Layers, Winds, Pressure."},
-            {"Day": 16, "Sub": "Geo (World)", "Top": "Hydrosphere: Ocean Relief, Currents (Gulf, Kuroshio), Tides, Salinity."},
-            {"Day": 17, "Sub": "Geo (India)", "Top": "Relief: Himalayas, Plains, Peninsular Plateau. Climate: Monsoon Mechanism, Seasons."},
-            {"Day": 18, "Sub": "Geo (India)", "Top": "Drainage: Himalayan vs Peninsular Rivers. Soil Types, Natural Vegetation & Forests."},
-            {"Day": 19, "Sub": "Geo (UK)", "Top": "UK Relief: Glaciers, River Systems (Ganga, Yamuna, Kali). Climate & Rainfall in UK."},
-            {"Day": 20, "Sub": "Geo (UK)", "Top": "UK Resources: Forest Policy, Minerals, Wildlife Sanctuaries & National Parks (Jim Corbett)."},
+            # UNIT 2: GEOGRAPHY
+            {"Day": 15, "Sub": "Geo (World)", "Top": "Solar System, Lithosphere: Rocks & Volcanoes. Atmosphere: Layers, Winds, Pressure belts."},
+            {"Day": 16, "Sub": "Geo (World)", "Top": "Hydrosphere: Ocean Relief, Currents (Gulf/Kuroshio), Salinity. World Maps."},
+            {"Day": 17, "Sub": "Geo (India)", "Top": "Relief: Himalayas, Plains, Peninsula. Climate: Monsoon Mechanism & Seasons."},
+            {"Day": 18, "Sub": "Geo (India)", "Top": "Drainage: Himalayan vs Peninsular Rivers. Soils, Vegetation & Wildlife."},
+            {"Day": 19, "Sub": "Geo (UK)", "Top": "UK Relief: Glaciers, River Systems (Ganga/Yamuna/Kali). Climate & Rainfall patterns."},
+            {"Day": 20, "Sub": "Geo (UK)", "Top": "Resources: UK Forest Policy, National Parks, Minerals & UK Demographics (2011)."},
             {"Day": 21, "Sub": "REVISION", "Top": "Unit 2 Mock: World, India & UK Geography."},
 
-            # WEEK 4: Polity (Unit 3)
-            {"Day": 22, "Sub": "Polity", "Top": "Constitution: Preamble, Features. Fundamental Rights, DPSP & Duties. Amendments (42/44)."},
-            {"Day": 23, "Sub": "Polity", "Top": "Parliament: President, PM, LS/RS, Committees. Judiciary: SC/HC, Writ Jurisdiction."},
-            {"Day": 24, "Sub": "Polity", "Top": "Bodies: Election Comm, CAG, UPSC, Lokpal. Federalism: Centre-State Relations."},
-            {"Day": 25, "Sub": "Polity (UK)", "Top": "UK Admin: Governor, CM, Legislative Assembly. Secretariat, District Admin."},
-            {"Day": 26, "Sub": "Polity (UK)", "Top": "Local Gov: 73rd/74th Amendments. UK Panchayati Raj Act & RTI in UK."},
-            {"Day": 27, "Sub": "Polity", "Top": "Public Policy: Welfare Schemes, Human Rights, Citizen's Charter."},
+            # UNIT 3: POLITY & GOVERNANCE
+            {"Day": 22, "Sub": "Polity", "Top": "Constitution: Preamble, Rights, Duties, DPSP. Important Amendments (42, 44, 73, 74, 101)."},
+            {"Day": 23, "Sub": "Polity", "Top": "Parliament: President, PM, LS/RS Procedures. Judiciary: SC/HC & Judicial Activism (PIL)."},
+            {"Day": 24, "Sub": "Polity", "Top": "Federalism: Centre-State Relations. Constitutional Bodies: Election Comm, CAG, UPSC."},
+            {"Day": 25, "Sub": "Polity (UK)", "Top": "UK Admin: Governor, CM, Legislative Assembly, Secretariat & District Admin."},
+            {"Day": 26, "Sub": "Polity (UK)", "Top": "Local Gov: UK Panchayati Raj Act. RTI, Lokpal & Citizen Charters in UK."},
+            {"Day": 27, "Sub": "Polity", "Top": "Public Policy: Human Rights, Education, Health & Welfare Schemes (State & Central)."},
             {"Day": 28, "Sub": "REVISION", "Top": "Unit 3 Mock: Indian Polity & UK Governance."},
 
-            # WEEK 5: Economy (Unit 4)
-            {"Day": 29, "Sub": "Economy", "Top": "Indian Economy: Features, Planning History (NITI Aayog). LPG Reforms 1991."},
-            {"Day": 30, "Sub": "Economy", "Top": "Banking: RBI (Monetary Policy), SEBI, NABARD. Stock Markets."},
-            {"Day": 31, "Sub": "Economy", "Top": "Public Finance: Budgeting, GST, Finance Commission. Poverty & Unemployment (MNREGA)."},
-            {"Day": 32, "Sub": "Economy (UK)", "Top": "UK Economy: Per Capita Income, Budget. Tourism Policy & Pilgrimage Impact."},
-            {"Day": 33, "Sub": "Economy (UK)", "Top": "Agriculture in UK: Horticulture, MSME Policy, Medicinal Herbs & Forest Resources."},
-            {"Day": 34, "Sub": "Economy", "Top": "Sustainable Dev Goals (SDG), Human Development Index (HDI), WTO & IMF."},
+            # UNIT 4: ECONOMY
+            {"Day": 29, "Sub": "Economy", "Top": "Indian Economy Features, NITI Aayog. LPG Reforms 1991 & GST."},
+            {"Day": 30, "Sub": "Economy", "Top": "Banking: RBI (Monetary Policy), SEBI, NABARD. Poverty & Unemployment (MNREGA)."},
+            {"Day": 31, "Sub": "Economy", "Top": "Public Finance: Budgeting Process, Finance Commission. WTO, IMF & World Bank."},
+            {"Day": 32, "Sub": "Economy (UK)", "Top": "UK Economy: Per Capita Income, Budget. Tourism Policy & Pilgrimage (Char Dham)."},
+            {"Day": 33, "Sub": "Economy (UK)", "Top": "Agriculture in UK: Horticulture, MSME Policy, Medicinal Herbs & Forest Produce."},
+            {"Day": 34, "Sub": "Economy", "Top": "Sustainable Development Goals (SDG) & Human Development Index (HDI) ranking."},
             {"Day": 35, "Sub": "REVISION", "Top": "Unit 4 Mock: Economy (India & UK)."},
 
-            # WEEK 6: Science & Tech (Unit 5)
-            {"Day": 36, "Sub": "Science", "Top": "Physics: Light, Sound, Magnetism, Nuclear Energy. Daily Life Applications."},
-            {"Day": 37, "Sub": "Science", "Top": "Chemistry: Matter, Polymers, Carbon & Compounds, Acids/Bases."},
-            {"Day": 38, "Sub": "Science", "Top": "Biology: Cell, Genetics, Human Systems (Circulation, Digestion), Diseases."},
-            {"Day": 39, "Sub": "Science", "Top": "ICT: E-Governance, Internet, Cyber Security, Cloud Computing. Space Tech (ISRO)."},
-            {"Day": 40, "Sub": "Science", "Top": "Environment: Ecology, Food Chain, Biodiversity Hotspots (Valley of Flowers)."},
-            {"Day": 41, "Sub": "Science (UK)", "Top": "Disaster Mgmt: UK Vulnerability (Earthquakes/Landslides), SDMA Structure."},
-            {"Day": 42, "Sub": "REVISION", "Top": "Unit 5 Mock: General Science & Tech."},
+            # UNIT 5: SCIENCE & TECH / ENVIRONMENT
+            {"Day": 36, "Sub": "Science", "Top": "Physics: Light, Sound, Electricity. Chemistry: Matter, Acids/Bases, Carbon Compounds."},
+            {"Day": 37, "Sub": "Science", "Top": "Biology: Cell Structure, Human Systems, Genetics, Health & Nutrition."},
+            {"Day": 38, "Sub": "Science", "Top": "ICT: E-Governance, Internet, Cyber Security, Artificial Intelligence."},
+            {"Day": 39, "Sub": "Science", "Top": "Space & Defense: ISRO Missions, Nuclear Power, DRDO Programs."},
+            {"Day": 40, "Sub": "Environment", "Top": "Ecology: Biodiversity, National Parks, Wetlands (Ramsar). Valley of Flowers."},
+            {"Day": 41, "Sub": "Science (UK)", "Top": "Disaster Mgmt: Earthquakes, Landslides, SDMA Structure, Cloudbursts."},
+            {"Day": 42, "Sub": "REVISION", "Top": "Unit 5 Mock: Science, Tech & Environment."},
 
-            # WEEK 7: Culture & Current Affairs (Unit 6)
-            {"Day": 43, "Sub": "Culture (UK)", "Top": "UK Tribes: Bhotia, Tharu, Jaunsari, Buxa, Raji. Folk Art, Music, Dance."},
-            {"Day": 44, "Sub": "Culture (UK)", "Top": "Fairs & Festivals: Nanda Devi, Kumbh, Magh Mela. Religious Sites: Panch Kedar/Badri."},
-            {"Day": 45, "Sub": "Current", "Top": "National Current Affairs: Awards, Sports, Summits, Appointments."},
-            {"Day": 46, "Sub": "Current", "Top": "International Affairs: UN, BRICS, G20. World Reports/Indices."},
-            {"Day": 47, "Sub": "Current (UK)", "Top": "UK State Current: Budget, CM Dashboards, New Welfare Schemes."},
-            {"Day": 48, "Sub": "Current", "Top": "Sports: Olympics, Cricket, Commonwealth. Famous Personalities."},
+            # UNIT 6: UK CULTURE & CURRENT AFFAIRS
+            {"Day": 43, "Sub": "Culture (UK)", "Top": "Tribes: Bhotia, Tharu, Jaunsari, Buxa, Raji. Folk Arts, Music & Instruments."},
+            {"Day": 44, "Sub": "Culture (UK)", "Top": "Fairs: Nanda Devi, Kumbh. Religious Sites: Panch Kedar, Panch Badri, Temples."},
+            {"Day": 45, "Sub": "Current", "Top": "National: Awards, Sports, Summits, Appointments. Indices & Reports."},
+            {"Day": 46, "Sub": "Current", "Top": "International: UN, BRICS, G20, G7. World Conflicts & Diplomatic Relations."},
+            {"Day": 47, "Sub": "Current (UK)", "Top": "UK State Current: Budget Highlights, New Schemes, CM Dashboard updates."},
+            {"Day": 48, "Sub": "Current", "Top": "Sports: Olympics, Cricket. Famous UK Personalities & Recent Book Awards."},
             {"Day": 49, "Sub": "REVISION", "Top": "Unit 6 Mock: Culture & Year-long Current Affairs."},
 
-            # WEEK 8: CSAT (Paper II)
+            # PAPER II: CSAT
             {"Day": 50, "Sub": "CSAT", "Top": "Reasoning: Coding-Decoding, Blood Relations, Direction Sense."},
-            {"Day": 51, "Sub": "CSAT", "Top": "Reasoning: Syllogism, Venn Diagrams, Seating Arrangement."},
+            {"Day": 51, "Sub": "CSAT", "Top": "Reasoning: Syllogism, Venn Diagrams, Analogies."},
             {"Day": 52, "Sub": "CSAT", "Top": "Numerical: Number System, Ratio, Percentage, Average."},
             {"Day": 53, "Sub": "CSAT", "Top": "Numerical: Profit/Loss, Time & Work, Data Interpretation (DI)."},
-            {"Day": 54, "Sub": "CSAT", "Top": "Comprehension: English Passage Reading & Vocabulary."},
-            {"Day": 55, "Sub": "CSAT", "Top": "General Hindi: Grammar, Tatsam-Tadbhav, Antonyms/Synonyms."},
-            {"Day": 56, "Sub": "REVISION", "Top": "CSAT Full Mock: Paper II Simulation."},
+            {"Day": 54, "Sub": "CSAT", "Top": "Comprehension: English Passage Skills & Vocabulary."},
+            {"Day": 55, "Sub": "CSAT", "Top": "General Hindi: Grammar, Tatsam-Tadbhav, Synonyms (Varna-Vichyar)."},
+            {"Day": 56, "Sub": "REVISION", "Top": "CSAT Full Mock: Paper II Simulator."},
 
-            # FINAL WEEK: MOCK MARATHON
+            # FINAL MARATHON
             {"Day": 57, "Sub": "MOCK", "Top": "GS Full Mock 1: Entire Paper I Simulation."},
             {"Day": 58, "Sub": "MOCK", "Top": "CSAT Full Mock 2: Entire Paper II Simulation."},
-            {"Day": 59, "Sub": "MOCK", "Top": "GS Full Mock 3: Revision of Weak Topics."},
-            {"Day": 60, "Sub": "MOCK", "Top": "FINAL SIMULATION: Combined Paper I & II (D-Day Prep)."}
+            {"Day": 59, "Sub": "MOCK", "Top": "GS Full Mock 3: All-India Test Series Level Paper."},
+            {"Day": 60, "Sub": "MOCK", "Top": "Final Simulation: Combined Paper I & II Strategy."}
         ]
         new_df = pd.DataFrame(full_curriculum)
-        new_df[["Status", "Notes", "Start_Time", "End_Time", "Resources"]] = ["Planned", "", "10:00 PM", "12:00 AM", ""]
+        for col in ["Status", "Notes", "Start_Time", "End_Time", "Resources"]:
+            new_df[col] = ""
+        new_df["Status"] = "Planned"
         conn.update(worksheet="Tasks", data=new_df)
         st.success("100% Granular Syllabus Deployed!"); st.rerun()
 
-# --- OTHER PAGES: LIBRARY, NOTES, ATTENDANCE (Keep same logic) ---
+# --- DIGITAL LIBRARY (Multiple Links Fix) ---
 elif page == "📚 Digital Library":
     st.title("📚 Library Manager")
-    target = st.selectbox("Select Topic:", df['Topic'].tolist())
-    idx = df[df['Topic'] == target].index[0]
-    current_links = str(df.at[idx, "Resources"])
-    new_link = st.text_input("Paste new Link:")
-    if st.button("Add Link"):
-        if new_link.startswith("http"):
-            updated = f"{current_links}, {new_link}" if current_links and current_links != "nan" else new_link
-            df.at[idx, "Resources"] = updated
-            conn.update(worksheet="Tasks", data=df); st.success("Added!"); st.rerun()
-    st.divider()
-    st.subheader("Inventory")
-    st.dataframe(df[df['Resources'].str.contains("http", na=False)][['Topic', 'Resources']], use_container_width=True)
+    if not df.empty:
+        target = st.selectbox("Select Topic:", df['Topic'].tolist())
+        idx = df[df['Topic'] == target].index[0]
+        
+        current_links = str(df.at[idx, "Resources"])
+        new_link = st.text_input("Paste URL:")
+        if st.button("Add to Topic"):
+            if new_link.startswith("http"):
+                # Append link logic
+                updated = f"{current_links}, {new_link}" if current_links and current_links != "" else new_link
+                df.at[idx, "Resources"] = updated
+                conn.update(worksheet="Tasks", data=df)
+                st.success("Link Saved!"); st.rerun()
+        
+        st.divider()
+        st.subheader("Inventory")
+        # Crash protection for search
+        inv_df = df[df['Resources'].astype(str).str.contains("http", na=False)][['Topic', 'Resources']]
+        st.dataframe(inv_df, use_container_width=True, hide_index=True)
 
+# --- STUDY NOTES ---
 elif page == "📝 Study Notes":
     st.title("📝 High-Yield Notes")
-    target = st.selectbox("Topic:", df['Topic'].tolist())
-    idx = df[df['Topic'] == target].index[0]
-    notes = st.text_area("Notes:", value=df.at[idx, 'Notes'], height=300)
-    if st.button("Save"):
-        df.at[idx, 'Notes'] = notes
-        conn.update(worksheet="Tasks", data=df); st.success("Synced!")
+    if not df.empty:
+        target = st.selectbox("Select Topic:", df['Topic'].tolist())
+        idx = df[df['Topic'] == target].index[0]
+        notes = st.text_area("Bullet Points:", value=df.at[idx, 'Notes'], height=300)
+        if st.button("Save Notes"):
+            df.at[idx, 'Notes'] = notes
+            conn.update(worksheet="Tasks", data=df); st.success("Notes Synced!")
 
+# --- ATTENDANCE LOG ---
 elif page == "⏱️ Attendance Log":
-    st.title("⏱️ Log")
-    target = st.selectbox("Target:", df['Topic'].tolist())
-    idx = df[df['Topic'] == target].index[0]
-    c1, c2 = st.columns(2)
-    s_t, e_t = c1.text_input("Start", "10:00 PM"), c2.text_input("End", "12:00 AM")
-    if st.button("Complete"):
-        df.at[idx, "Status"], df.at[idx, "Start_Time"], df.at[idx, "End_Time"] = "Completed", s_t, e_t
-        conn.update(worksheet="Tasks", data=df); st.success("Logged!"); st.rerun()
+    st.title("⏱️ Study Session Log")
+    if not df.empty:
+        target = st.selectbox("Log Session:", df['Topic'].tolist())
+        idx = df[df['Topic'] == target].index[0]
+        c1, c2 = st.columns(2)
+        s_t, e_t = c1.text_input("Start", "10:00 PM"), c2.text_input("End", "12:00 AM")
+        if st.button("Complete Day"):
+            df.at[idx, "Status"], df.at[idx, "Start_Time"], df.at[idx, "End_Time"] = "Completed", s_t, e_t
+            conn.update(worksheet="Tasks", data=df); st.success("Logged!"); st.rerun()
+
+# --- ROADMAP ---
+elif page == "📅 60-Day Roadmap":
+    st.title("📅 60-Day Roadmap")
+    st.dataframe(df.sort_values("Day"), use_container_width=True, hide_index=True)
