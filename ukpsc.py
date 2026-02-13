@@ -3,129 +3,132 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime, timedelta
 
-# 1. Page Configuration
+# 1. Configuration & Connection
 st.set_page_config(page_title="UKPSC Sentinel", layout="wide", page_icon="🛡️")
-
-# 2. Cloud Connection
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 3. Defensive Data Loader (The Fix for your KeyError)
+# 2. Data Loading & Self-Healing
 try:
     df = conn.read(worksheet="Tasks", ttl=0)
-    # Ensure all required columns exist in the dataframe
     required_cols = ["Day", "Subject", "Topic", "Status", "Notes", "Start_Time", "End_Time", "Resources"]
     for col in required_cols:
-        if col not in df.columns:
-            df[col] = "" # Automatically creates the missing column
-except Exception:
+        if col not in df.columns: df[col] = ""
+    df["Day"] = pd.to_numeric(df["Day"], errors='coerce')
+except:
     df = pd.DataFrame(columns=["Day", "Subject", "Topic", "Status", "Notes", "Start_Time", "End_Time", "Resources"])
 
-# 4. Sidebar Navigation
+# 3. Sidebar Navigation
 st.sidebar.title("Sentinel Command")
-page = st.sidebar.radio("Navigate", ["📊 Dashboard", "📅 60-Day Roadmap", "⏱️ Attendance Log", "📚 Digital Library", "📝 Study Notes", "⚙️ Settings"])
+page = st.sidebar.radio("Navigate", ["📊 Dashboard", "📅 60-Day Roadmap", "⏱️ Attendance Log", "📚 Digital Library", "📝 Study Notes", "⚙️ Engine Room"])
 
-# --- DASHBOARD PAGE ---
+# --- BREAK DAY LOGIC ---
+def trigger_break_day(current_day_val):
+    mask = df["Day"] >= current_day_val
+    df.loc[mask, "Day"] = df.loc[mask, "Day"] + 1
+    conn.update(worksheet="Tasks", data=df)
+    st.toast(f"Plan shifted! Day {current_day_val} is now a Break Day.", icon="☕")
+    st.rerun()
+
+# --- DASHBOARD ---
 if page == "📊 Dashboard":
     st.title("🏔️ UKPSC Sentinel Dashboard")
-    if not df.empty:
-        total = len(df)
-        completed = df[df["Status"] == "Completed"]
-        progress_val = len(completed) / total if total > 0 else 0
-        
-        c1, c2, c3 = st.columns([1, 1, 2])
-        c1.metric("Total Topics", total)
-        c2.metric("Days Mastered", len(completed))
-        with c3:
-            st.write("**Overall Preparation Mastery**")
-            st.progress(progress_val)
-        
-        st.divider()
+    
+    # Calculate current day based on start date Feb 13, 2026
+    start_date = datetime(2026, 2, 13).date()
+    days_passed = (datetime.now().date() - start_date).days + 1
+    
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        today_task = df[df["Day"] == days_passed]
+        if not today_task.empty:
+            st.info(f"🚩 **Today's Duty (Day {days_passed}):** {today_task.iloc[0]['Subject']} — {today_task.iloc[0]['Topic']}")
+            if today_task.iloc[0]['Resources']:
+                st.link_button("📖 Open PDF", today_task.iloc[0]['Resources'])
+        else:
+            st.success("You are ahead of schedule or have completed the 60 days!")
 
-        # Late Night Study Hours Calculation
-        total_hours = 0.0
-        for _, row in completed.iterrows():
-            try:
-                fmt = "%I:%M %p"
-                start = datetime.strptime(str(row["Start_Time"]), fmt)
-                end = datetime.strptime(str(row["End_Time"]), fmt)
-                if end < start: end += timedelta(days=1) # Midnight logic
-                total_hours += (end - start).total_seconds() / 3600
-            except: continue
-        
-        st.subheader(f"📊 Discipline Score: {total_hours:.1f} Total Study Hours")
+    with c2:
+        st.write("### 🚨 Schedule Adjustment")
+        if st.button("☕ Take a Break Today"):
+            trigger_break_day(days_passed)
 
-        st.divider()
-        start_date = datetime(2026, 2, 13).date()
-        days_since = (datetime.now().date() - start_date).days + 1
-        df['Day'] = pd.to_numeric(df['Day'], errors='coerce')
-        current_duty = df[df["Day"] == days_since]
-        
-        if not current_duty.empty:
-            st.info(f"🚩 **Today's Topic (Day {days_since}):** {current_duty.iloc[0]['Subject']} — {current_duty.iloc[0]['Topic']}")
-            res_url = current_duty.iloc[0].get('Resources', "")
-            if pd.notna(res_url) and str(res_url).strip() != "":
-                st.link_button("🔓 Open Today's PDF", res_url, type="primary")
-
-# --- FULL 60-DAY ROADMAP ---
-elif page == "📅 60-Day Roadmap":
-    st.title("🛤️ Full Syllabus Roadmap")
-    if not df.empty:
-        start_date = datetime(2026, 2, 13).date()
-        df_view = df.copy()
-        df_view['Day'] = pd.to_numeric(df_view['Day'])
-        df_view['Date'] = df_view['Day'].apply(lambda x: (start_date + timedelta(days=int(x)-1)).strftime('%d %b %Y'))
-        st.dataframe(df_view[['Day', 'Date', 'Subject', 'Topic', 'Status']], use_container_width=True, hide_index=True)
-
-# --- ATTENDANCE LOG ---
-elif page == "⏱️ Attendance Log":
-    st.title("⏱️ Study Session Attendance")
-    if not df.empty:
-        selected_topic = st.selectbox("Assign hours to topic:", df['Topic'].tolist())
-        idx = df[df['Topic'] == selected_topic].index[0]
-        col1, col2 = st.columns(2)
-        with col1: start_t = st.text_input("Start (10:00 PM)", value=str(df.at[idx, "Start_Time"]))
-        with col2: end_t = st.text_input("End (12:00 AM)", value=str(df.at[idx, "End_Time"]))
-        if st.button("🏁 Log Session & Complete"):
-            df.at[idx, "Start_Time"], df.at[idx, "End_Time"], df.at[idx, "Status"] = start_t, end_t, "Completed"
-            conn.update(worksheet="Tasks", data=df)
-            st.success("Session saved!"); st.rerun()
-
-# --- DIGITAL LIBRARY ---
-elif page == "📚 Digital Library":
-    st.title("📚 Digital Library")
-    if not df.empty:
-        topic_to_link = st.selectbox("Assign link to topic:", df['Topic'].tolist())
-        idx = df[df['Topic'] == topic_to_link].index[0]
-        # Safe string conversion for Resources
-        existing_val = df.at[idx, "Resources"]
-        val_to_show = str(existing_val) if pd.notna(existing_val) else ""
-        url = st.text_input("Paste Drive/PDF URL:", value=val_to_show if val_to_show != "nan" else "")
-        if st.button("🔗 Save Link"):
-            df.at[idx, "Resources"] = url
-            conn.update(worksheet="Tasks", data=df); st.success("Resource Saved!")
-
-# --- STUDY NOTES ---
-elif page == "📝 Study Notes":
-    st.title("📝 Sentinel Study Notes")
-    if not df.empty:
-        selected = st.selectbox("Topic", df['Topic'].unique())
-        idx = df[df['Topic'] == selected].index[0]
-        note = st.text_area("Key Facts", value=df.at[idx, 'Notes'])
-        if st.button("💾 Save"):
-            df.at[idx, 'Notes'] = note
-            conn.update(worksheet="Tasks", data=df); st.success("Notes Synced!")
-
-# --- SETTINGS ---
-elif page == "⚙️ Settings":
+# --- ENGINE ROOM (FULL 60-DAY SYLLABUS DATA) ---
+elif page == "⚙️ Settings" or page == "⚙️ Engine Room":
     st.title("⚙️ Engine Room")
-    if st.button("🚀 Initialize FULL 60-Day Roadmap"):
-        plan = []
-        cycle = [("History", "Ancient UK"), ("Polity", "Constitution"), ("Geography", "Rivers"), ("UK GK", "Districts"), ("History", "Modern UK"), ("Economy", "Budget"), ("Science", "Environment")]
-        for i in range(1, 61):
-            if i % 7 == 0:
-                plan.append({"Day": i, "Subject": "REVISION", "Topic": f"Week {i//7} Mock", "Status": "Planned", "Notes": "", "Start_Time": "10:00 PM", "End_Time": "12:00 AM", "Resources": ""})
-            else:
-                sub, top = cycle[(i-1) % 7]
-                plan.append({"Day": i, "Subject": sub, "Topic": f"{top} (Part {i})", "Status": "Planned", "Notes": "", "Start_Time": "10:00 PM", "End_Time": "12:00 AM", "Resources": ""})
-        conn.update(worksheet="Tasks", data=pd.DataFrame(plan))
-        st.success("60-Day Roadmap Deployed!"); st.rerun()
+    if st.button("🚀 Deploy COMPLETE 60-Day Syllabus"):
+        # COMPLETE SYLLABUS MAPPING (Unit 1 to Unit 6 + CSAT)
+        full_schedule = [
+            # WEEK 1: Ancient & Medieval (India & UK)
+            {"Day": 1, "Sub": "History", "Top": "Harappa, Vedic, Jainism & Buddhism"},
+            {"Day": 2, "Sub": "History", "Top": "Mauryan, Kushan & Gupta Empire (Admin/Culture)"},
+            {"Day": 3, "Sub": "History", "Top": "Ancient UK: Kuninda, Yaudheya & Katyuri Dynasties"},
+            {"Day": 4, "Sub": "History", "Top": "Delhi Sultanate: Slave, Khilji, Tughlaq & Lodi"},
+            {"Day": 5, "Sub": "History", "Top": "Medieval UK: Parmar Dynasty (Garhwal) & Chand (Kumaon)"},
+            {"Day": 6, "Sub": "History", "Top": "Mughal Empire & Gorkha Rule in Uttarakhand"},
+            {"Day": 7, "Sub": "REVISION", "Top": "Unit 1 Mock: Ancient & Medieval Mastery"},
+            # WEEK 2: Modern History & UK Statehood
+            {"Day": 8, "Sub": "History", "Top": "European Arrival & British Expansion (1758-1857)"},
+            {"Day": 9, "Sub": "History", "Top": "1857 Revolt & Role of Uttarakhand in Early Resistance"},
+            {"Day": 10, "Sub": "History", "Top": "National Movement: Gandhi Era (India-wide)"},
+            {"Day": 11, "Sub": "History", "Top": "UK Public Movements: Coolie Begar & Chipko"},
+            {"Day": 12, "Sub": "History", "Top": "Tehri State Movement & Merger with India"},
+            {"Day": 13, "Sub": "History", "Top": "Separate Statehood Movement (1994 Muzaffarnagar)"},
+            {"Day": 14, "Sub": "REVISION", "Top": "Unit 1 Mock: Modern History & UK Statehood"},
+            # WEEK 3: Geography (Unit 2)
+            {"Day": 15, "Sub": "Geo", "Top": "World Geo: Solar System, Rocks & Atmosphere Layers"},
+            {"Day": 16, "Sub": "Geo", "Top": "World Geo: Hydrosphere & Ocean Currents"},
+            {"Day": 17, "Sub": "Geo", "Top": "Indian Geo: Relief, Structure & Climate (Monsoon)"},
+            {"Day": 18, "Sub": "Geo", "Top": "Indian Geo: Rivers, Soils & Natural Vegetation"},
+            {"Day": 19, "Sub": "Geo", "Top": "UK Geography: Glaciers, Peaks & River Systems"},
+            {"Day": 20, "Sub": "Geo", "Top": "UK Resources: Forests, Minerals & Population"},
+            {"Day": 21, "Sub": "REVISION", "Top": "Unit 2 Mock: World, India & UK Geography"},
+            # WEEK 4: Polity (Unit 3)
+            {"Day": 22, "Sub": "Polity", "Top": "Constitution: Preamble, Fundamental Rights & Duties"},
+            {"Day": 23, "Sub": "Polity", "Top": "Parliamentary System: President, PM & Parliament"},
+            {"Day": 24, "Sub": "Polity", "Top": "Judiciary: SC, HC & Local Courts"},
+            {"Day": 25, "Sub": "Polity", "Top": "Constitutional Bodies: Election Comm, CAG, Lokpal"},
+            {"Day": 26, "Sub": "Polity", "Top": "UK Administration: Governor, CM & Secretariat"},
+            {"Day": 27, "Sub": "Polity", "Top": "Local Governance: 73/74 Amendments & UK Panchayati Raj"},
+            {"Day": 28, "Sub": "REVISION", "Top": "Unit 3 Mock: Indian Polity & UK Admin"},
+            # WEEK 5: Economy (Unit 4)
+            {"Day": 29, "Sub": "Economy", "Top": "Economic Reforms: LPG, FDI & Indian RBI Policy"},
+            {"Day": 30, "Sub": "Economy", "Top": "Socio-Economic: Poverty, Unemployment & HDI"},
+            {"Day": 31, "Sub": "Economy", "Top": "Indian Agriculture: Green Rev & Food Security"},
+            {"Day": 32, "Sub": "Economy", "Top": "UK Economy: Per Capita Income & Tourism Policy"},
+            {"Day": 33, "Sub": "Economy", "Top": "UK Budget, MSME & Medicinal Herbs Industry"},
+            {"Day": 34, "Sub": "Economy", "Top": "Human Development & Employment in UK"},
+            {"Day": 35, "Sub": "REVISION", "Top": "Unit 4 Mock: Indian & UK Economy"},
+            # WEEK 6: Science & Tech (Unit 5)
+            {"Day": 36, "Sub": "Science", "Top": "Physics: Mechanics, Light, Sound & Magnetism"},
+            {"Day": 37, "Sub": "Science", "Top": "Chemistry: Matter, Acids, Bases & Polymers"},
+            {"Day": 38, "Sub": "Science", "Top": "Biology: Human Systems, Health & Vaccines"},
+            {"Day": 39, "Sub": "Science", "Top": "ICT: Computers, Cloud Computing & E-Governance"},
+            {"Day": 40, "Sub": "Science", "Top": "Environment: Ecology & Biodiversity Conservation"},
+            {"Day": 41, "Sub": "Science", "Top": "Climate Change & UK Disaster Management"},
+            {"Day": 42, "Sub": "REVISION", "Top": "Unit 5 Mock: Sci-Tech & Environment"},
+            # WEEK 7: Current Affairs & UK Culture (Unit 6)
+            {"Day": 43, "Sub": "Culture", "Top": "UK Tribes: Bhotia, Tharu, Jaunsari, Buxa & Raji"},
+            {"Day": 44, "Sub": "Culture", "Top": "UK Culture: Folk Music, Dance, Fairs & Festivals"},
+            {"Day": 45, "Sub": "Culture", "Top": "Religious Sites: Panch Kedar, Badri & UK Temples"},
+            {"Day": 46, "Sub": "Current", "Top": "National/International: Awards, Sports & Reports"},
+            {"Day": 47, "Sub": "Current", "Top": "UK Specific Current Events & Govt Schemes"},
+            {"Day": 48, "Sub": "Current", "Top": "International Orgs: UN, SAARC, ASEAN, BRICS"},
+            {"Day": 49, "Sub": "REVISION", "Top": "Unit 6 Mock: Culture & Current Affairs"},
+            # WEEK 8: CSAT (Paper II)
+            {"Day": 50, "Sub": "CSAT", "Top": "Reasoning: Syllogism, Venn Diagrams & Analogies"},
+            {"Day": 51, "Sub": "CSAT", "Top": "Reasoning: Coding-Decoding, Blood Relations & Series"},
+            {"Day": 52, "Sub": "CSAT", "Top": "Numerical: Number System, Ratio & Percentage"},
+            {"Day": 53, "Sub": "CSAT", "Top": "Data Interpretation: Charts, Tables & Graphs"},
+            {"Day": 54, "Sub": "CSAT", "Top": "English: Comprehension & Vocabulary"},
+            {"Day": 55, "Sub": "CSAT", "Top": "Hindi: Grammar, Tatsam-Tadbhav & Usage"},
+            {"Day": 56, "Sub": "REVISION", "Top": "CSAT Mastery: Paper II Full Practice"},
+            # WEEK 9: Final Mock Marathon
+            {"Day": 57, "Sub": "MOCK", "Top": "Full Simulation: Paper I (GS) Mock 1"},
+            {"Day": 58, "Sub": "MOCK", "Top": "Full Simulation: Paper II (CSAT) Mock 1"},
+            {"Day": 59, "Sub": "MOCK", "Top": "Full Simulation: Paper I (GS) Mock 2"},
+            {"Day": 60, "Sub": "MOCK", "Top": "Full Simulation: Paper II (CSAT) Mock 2"},
+        ]
+        new_df = pd.DataFrame(full_schedule)
+        new_df[["Status", "Notes", "Start_Time", "End_Time", "Resources"]] = ["Planned", "", "10:00 PM", "12:00 AM", ""]
+        conn.update(worksheet="Tasks", data=new_df)
+        st.success("Full 60-Day Syllabus Integrated with Break-Day Logic!")
