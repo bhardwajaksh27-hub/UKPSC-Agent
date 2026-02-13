@@ -9,120 +9,135 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 # 2. PERSISTENCE ENGINE: Load & Save Functions
 def load_data():
-    # ttl=0 ensures we bypass the cache to get real-time data from the sheet
     data = conn.read(worksheet="Tasks", ttl=0)
-    # Ensure critical columns exist in the dataframe
     expected_cols = ["Day", "Subject", "Topic", "Status", "Notes", "Start_Time", "End_Time", "Resources"]
     for col in expected_cols:
         if col not in data.columns:
             data[col] = ""
-    # Fix types for search and calculations
     data["Resources"] = data["Resources"].astype(str).replace(['nan', 'None'], '')
     data["Day"] = pd.to_numeric(data["Day"], errors='coerce').fillna(0).astype(int)
     return data
 
 def save_data(data):
-    # This pushes the entire dataframe back to your Google Sheet
     conn.update(worksheet="Tasks", data=data)
     st.cache_data.clear() 
 
 df = load_data()
 
+# --- CORE FUNCTION: DYNAMIC SHIFT (For Breaks) ---
+def trigger_break_day(current_day_val):
+    # This pushes all future tasks down by 1 day
+    mask = df["Day"] >= current_day_val
+    df.loc[mask, "Day"] = df.loc[mask, "Day"] + 1
+    save_data(df)
+    st.toast(f"Schedule shifted! Day {current_day_val} is now a break.", icon="☕")
+    st.rerun()
+
 # 3. Sidebar Navigation
 st.sidebar.title("Sentinel Command")
-page = st.sidebar.radio("Navigate", ["📊 Dashboard", "📅 60-Day Roadmap", "⏱️ Attendance Log", "📚 Digital Library", "📝 Study Notes", "⚙️ Engine Room"])
+page = st.sidebar.radio("Navigate", ["📊 Dashboard", "📅 60-Day Roadmap", "📚 Digital Library", "📝 Study Notes", "⚙️ Engine Room"])
 
-# --- PAGE: DASHBOARD ---
+# --- PAGE: DASHBOARD (Restored Controls) ---
 if page == "📊 Dashboard":
     st.title("🏔️ UKPSC Sentinel Dashboard")
     start_date = datetime(2026, 2, 13).date()
     days_passed = (datetime.now().date() - start_date).days + 1
     
+    # Check if a task exists for today
     today_task = df[df["Day"] == days_passed]
     
     if not today_task.empty:
         row = today_task.iloc[0]
-        st.info(f"🚩 **Day {days_passed} Target**")
-        st.header(f"{row['Subject']}: {row['Topic']}")
+        idx = today_task.index[0]
         
-        # Split and display resources as a numbered sub-series
-        res_str = str(row['Resources']).strip()
-        links = [l.strip() for l in res_str.split(",") if l.strip().startswith("http")]
+        col1, col2 = st.columns([2, 1])
         
-        if links:
-            st.write("### 📖 Study Resources")
-            for i, link in enumerate(links):
-                char = chr(97 + i) # a, b, c...
-                st.link_button(f"Resource {char}) Open Link", link)
-        else:
-            st.warning("⚠️ No resources linked for today.")
+        with col1:
+            st.info(f"🚩 **Current Duty: Day {days_passed}**")
+            st.header(f"{row['Subject']}: {row['Topic']}")
+            
+            # Resources Section
+            res_str = str(row['Resources']).strip()
+            links = [l.strip() for l in res_str.split(",") if l.strip().startswith("http")]
+            if links:
+                st.write("### 📖 Study Resources")
+                for i, link in enumerate(links):
+                    char = chr(97 + i)
+                    st.link_button(f"Resource {char}) Open Link", link)
+            else:
+                st.warning("⚠️ No resources linked. Add them in the 'Digital Library' tab.")
+
+        with col2:
+            st.write("### ⚡ Quick Actions")
+            # 1. Attendance Log (In-Dashboard)
+            with st.expander("✅ Mark Attendance", expanded=True):
+                s_t = st.text_input("Start", "10:00 PM")
+                e_t = st.text_input("End", "12:00 AM")
+                if st.button("Complete Day"):
+                    df.at[idx, "Status"] = "Completed"
+                    df.at[idx, "Start_Time"] = s_t
+                    df.at[idx, "End_Time"] = e_t
+                    save_data(df)
+                    st.success("Progress Saved!")
+                    st.rerun()
+            
+            # 2. Break/Shift Button
+            if st.button("☕ Take a Break Today"):
+                trigger_break_day(days_passed)
+
     else:
-        st.success("Target complete or Syllabus not deployed. Check the Engine Room.")
+        st.error("No task found for today. Did you deploy the syllabus?")
+
+    st.divider()
+    # 3. Topic List View (Visual Roadmap)
+    st.subheader("📋 Upcoming Agenda")
+    # Show only the next 7 days for quick reference
+    future_tasks = df[df["Day"] >= days_passed].sort_values("Day").head(7)
+    st.table(future_tasks[["Day", "Subject", "Topic", "Status"]])
 
 # --- PAGE: DIGITAL LIBRARY ---
 elif page == "📚 Digital Library":
-    st.title("📚 Persistent Library Manager")
-    target = st.selectbox("Select Topic to Link Books:", df['Topic'].tolist())
+    st.title("📚 Library Manager")
+    target = st.selectbox("Select Topic:", df['Topic'].tolist())
     idx = df[df['Topic'] == target].index[0]
     
-    new_link = st.text_input("Paste URL to Save in Repository:")
-    if st.button("➕ Add to Repository"):
+    new_link = st.text_input("Paste URL:")
+    if st.button("➕ Save Link"):
         if new_link.startswith("http"):
             current = str(df.at[idx, "Resources"]).replace('nan', '')
             updated = f"{current}, {new_link}" if current and current != "" else new_link
             df.at[idx, "Resources"] = updated
             save_data(df)
-            st.success("Resource saved permanently!")
+            st.success("Saved!")
             st.rerun()
 
     st.divider()
-    st.subheader("📂 Your Resource Repository")
     active_lib = df[df['Resources'].str.contains("http", na=False)]
-    if not active_lib.empty:
-        for _, row in active_lib.iterrows():
-            with st.expander(f"📚 {row['Topic']}"):
-                t_links = [l.strip() for l in str(row['Resources']).split(",") if l.strip()]
-                for i, l in enumerate(t_links):
-                    st.write(f"**({chr(97+i)})** {l}")
-    else:
-        st.info("Your repository is empty.")
+    for _, row in active_lib.iterrows():
+        with st.expander(f"📚 {row['Topic']}"):
+            t_links = [l.strip() for l in str(row['Resources']).split(",") if l.strip()]
+            for i, l in enumerate(t_links):
+                st.write(f"**({chr(97+i)})** {l}")
 
 # --- PAGE: STUDY NOTES ---
 elif page == "📝 Study Notes":
-    st.title("📝 Persistent High-Yield Notes")
+    st.title("📝 High-Yield Notes")
     target = st.selectbox("Select Topic:", df['Topic'].tolist())
     idx = df[df['Topic'] == target].index[0]
-    
-    existing_notes = str(df.at[idx, 'Notes']).replace('nan', '')
-    notes = st.text_area("Write/Edit Notes:", value=existing_notes, height=400)
-    
-    if st.button("💾 Sync Notes to Cloud"):
+    notes = st.text_area("Notes:", value=str(df.at[idx, 'Notes']).replace('nan', ''), height=400)
+    if st.button("💾 Sync to Cloud"):
         df.at[idx, 'Notes'] = notes
-        save_data(df)
-        st.success("Notes saved and synced!")
+        save_data(df); st.success("Synced!")
 
-# --- PAGE: ATTENDANCE LOG ---
-elif page == "⏱️ Attendance Log":
-    st.title("⏱️ Persistent Study Log")
-    target = st.selectbox("Topic Completed:", df['Topic'].tolist())
-    idx = df[df['Topic'] == target].index[0]
-    
-    c1, c2 = st.columns(2)
-    s_t = c1.text_input("Start Time", "10:00 PM")
-    e_t = c2.text_input("End Time", "12:00 AM")
-    
-    if st.button("✅ Mark Completed & Save"):
-        df.at[idx, "Status"] = "Completed"
-        df.at[idx, "Start_Time"] = s_t
-        df.at[idx, "End_Time"] = e_t
-        save_data(df)
-        st.success("Progress logged in the cloud!")
-        st.rerun()
+# --- PAGE: ROADMAP ---
+elif page == "📅 60-Day Roadmap":
+    st.title("📅 Master Progress Tracker")
+    st.dataframe(df.sort_values("Day"), use_container_width=True, hide_index=True)
 
-# --- PAGE: ENGINE ROOM (FULL 60-DAY SYLLABUS) ---
+# --- PAGE: ENGINE ROOM (Syllabus Deployment) ---
 elif page == "⚙️ Engine Room":
     st.title("⚙️ System Core")
-    if st.button("🚀 DEPLOY FULL 60-DAY SYLLABUS (MASTER VERSION)"):
+    if st.button("🚀 DEPLOY FULL 60-DAY SYLLABUS"):
         master_syllabus = [
             {"Day": 1, "Sub": "History", "Top": "Harappa: Town Planning, Seals, Trade. Vedic: Early/Later, Rivers, Sabha/Samiti."},
             {"Day": 2, "Sub": "History", "Top": "16 Mahajanapadas & Magadh Rise. Jainism & Buddhism Councils & Philosophy."},
@@ -143,7 +158,7 @@ elif page == "⚙️ Engine Room":
             {"Day": 17, "Sub": "Geo (India)", "Top": "Relief: Himalayas, Plains, Peninsula. Climate: Monsoon Mechanism & Seasons."},
             {"Day": 18, "Sub": "Geo (India)", "Top": "Drainage: Himalayan vs Peninsular Rivers. Soils, Vegetation & Forests."},
             {"Day": 19, "Sub": "Geo (UK)", "Top": "UK Relief: Glaciers, River Systems (Ganga, Yamuna, Kali). Climate & Rainfall."},
-            {"Day": 20, "Sub": "Geo (UK)", "Top": "Resources: UK Forest Policy, Wildlife Sanctuaries & National Parks (Jim Corbett)."},
+            {"Day": 20, "Sub": "Geo (UK)", "Top": "Resources: UK Forest Policy, National Parks, Minerals & UK Demographics (2011)."},
             {"Day": 21, "Sub": "REVISION", "Top": "Mock 3: World, India & UK Geography."},
             {"Day": 22, "Sub": "Polity", "Top": "Constitution: Preamble, Rights, DPSP & Duties. Amendments (42/44)."},
             {"Day": 23, "Sub": "Polity", "Top": "Parliament: President, PM, Committees. Judiciary: SC/HC & Writ Jurisdiction."},
@@ -191,8 +206,3 @@ elif page == "⚙️ Engine Room":
         new_df["Status"] = "Planned"
         save_data(new_df)
         st.success("Master Syllabus Deployed & Synced to Cloud!"); st.rerun()
-
-# --- PAGE: ROADMAP ---
-elif page == "📅 60-Day Roadmap":
-    st.title("📅 Progress Tracker")
-    st.dataframe(df.sort_values("Day"), use_container_width=True, hide_index=True)
